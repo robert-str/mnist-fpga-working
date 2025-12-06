@@ -88,8 +88,8 @@ def convert_mem_to_bin(mem_path, bin_path, bytes_per_value):
 def main():
     # Default paths relative to this script's location
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    default_input = os.path.join(script_dir, "..", "le-net", "outputs", "mem")
-    default_output = os.path.join(script_dir, "..", "le-net", "outputs", "bin")
+    default_input = os.path.join(script_dir, "..", "regresja", "outputs", "mem")
+    default_output = os.path.join(script_dir, "..", "regresja", "outputs", "bin")
     
     # Get directories from arguments or use defaults
     if len(sys.argv) > 1:
