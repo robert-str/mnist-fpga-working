@@ -20,3 +20,6 @@ Contains exported weights and biases for all three layers.
 | `L3_weights` | Hidden2 → Output weights | 160 values (INT8) |
 | `L3_biases` | Output biases | 10 values (INT32) |
 
+
+
+

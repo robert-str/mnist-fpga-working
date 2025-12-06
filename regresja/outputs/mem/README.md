@@ -27,3 +27,6 @@ initial $readmemh("W.mem", weight_memory);
 initial $readmemh("B.mem", bias_memory);
 ```
 
+
+
+

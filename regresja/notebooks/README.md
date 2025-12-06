@@ -24,3 +24,6 @@ Or use VS Code / Cursor with Jupyter extension.
 - Experiment with quantization parameters
 - Visualize training results and accuracy
 
+
+
+

@@ -30,3 +30,6 @@ Raw binary data for serial transmission:
 - Weights: 1 byte per value
 - Biases: 4 bytes per value (little-endian)
 
+
+
+

@@ -23,3 +23,6 @@ Same as softmax regression:
 - Weights: 2 hex digits (INT8, two's complement for negative)
 - Biases: 8 hex digits (INT32, two's complement)
 
+
+
+

@@ -16,3 +16,6 @@ Jupyter notebooks for training the multi-layer neural network.
 - Evaluate quantized model accuracy
 - Export quantized weights for FPGA
 
+
+
+

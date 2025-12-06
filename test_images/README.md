@@ -40,3 +40,6 @@ When adding your own handwritten digit images:
    - Invert colors if needed (use `--no-invert` flag if already white-on-black)
    - Apply preprocessing (StandardScaler + quantization)
 
+
+
+

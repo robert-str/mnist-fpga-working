@@ -25,3 +25,6 @@ Raw binary files for UART transmission to FPGA.
 uv run ../../shared/convert_to_binary.py ../mem/ ./
 ```
 
+
+
+

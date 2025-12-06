@@ -33,3 +33,6 @@ This project implements neural network inference on FPGA hardware for classifyin
 - FPGA board with UART interface (tested on Basys 3 / Nexys A7)
 - USB-to-Serial connection (115200 baud default)
 
+
+
+
