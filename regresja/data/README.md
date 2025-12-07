@@ -21,10 +21,6 @@ x_scaled = (x / 255.0 - mean) / scale
 x_int8 = round(x_scaled × 127)
 ```
 
-## Important
-
-Run `soft_reg_lepsza_kwant.py` first to generate these files before testing inference.
-
 
 
 
