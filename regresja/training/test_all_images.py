@@ -10,8 +10,8 @@ W_raw = np.loadtxt(os.path.join(script_dir, '../outputs/mem/W.mem'), dtype=str)
 W = np.array([int(x, 16) if int(x, 16) < 128 else int(x, 16) - 256 for x in W_raw]).reshape(10, 784)
 B_raw = np.loadtxt(os.path.join(script_dir, '../outputs/mem/B.mem'), dtype=str)
 B = np.array([int(x, 16) if int(x, 16) < 2**31 else int(x, 16) - 2**32 for x in B_raw])
-mean = np.load(os.path.join(script_dir, '../data/scaler_mean.npy'))
-scale = np.load(os.path.join(script_dir, '../data/scaler_scale.npy'))
+mean = np.load(os.path.join(script_dir, '../outputs/npy/scaler_mean.npy'))
+scale = np.load(os.path.join(script_dir, '../outputs/npy/scaler_scale.npy'))
 
 def predict(img_path):
     img = Image.open(img_path).convert('L')

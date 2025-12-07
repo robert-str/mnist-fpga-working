@@ -80,7 +80,7 @@ print(f"Accuracy loss from quantization: {(accuracy - acc_quant) * 100:.2f}%")
 # ============================================================
 script_dir = os.path.dirname(os.path.abspath(__file__))
 output_dir = os.path.join(script_dir, "..", "outputs", "mem")
-data_dir = os.path.join(script_dir, "..", "data")
+data_dir = os.path.join(script_dir, "..", "outputs", "npy")
 os.makedirs(output_dir, exist_ok=True)
 os.makedirs(data_dir, exist_ok=True)
 
