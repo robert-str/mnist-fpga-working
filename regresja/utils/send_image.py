@@ -260,7 +260,7 @@ def main():
     
     # Default source is 00006.png in test_images directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    default_source = os.path.join(script_dir, "..", "..", "test_images", "00320.png")
+    default_source = os.path.join(script_dir, "..", "..", "test_images", "00001.png")
     
     source = args[0] if len(args) > 0 else default_source
     port = args[1] if len(args) > 1 else "COM3"
