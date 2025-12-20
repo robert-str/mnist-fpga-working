@@ -1,21 +1,35 @@
 """
 Send neural network weights to FPGA via UART.
 
+Model: Two-Hidden-Layer Neural Network for MNIST
+  - Layer 1: 784 -> 16 (12,544 weights + 64 biases)
+  - Layer 2: 16 -> 16 (256 weights + 64 biases)
+  - Layer 3: 16 -> 10 (160 weights + 40 biases)
+  - Total: 13,128 bytes (12,960 weights + 168 biases)
+
 Protocol:
   - Start marker: 0xAA 0x55
   - Data bytes: all weight/bias files concatenated
   - End marker: 0x55 0xAA
 
+Configuration:
+  - Port: COM3 (hardcoded)
+  - Baud rate: 115200 (hardcoded)
+  - Binary files: ../outputs/bin/
+
 Usage:
-  python send_weights.py COM3
-  python send_weights.py COM3 --baud 115200
+  python send_weights.py
 """
 
 import serial
 import os
 import sys
 import time
-import argparse
+
+# Configuration
+PORT = "COM3"           # Serial port
+BAUD_RATE = 115200      # Baud rate
+BIN_DIR = "../outputs/bin"  # Directory with binary files
 
 # Protocol markers
 START_MARKER = bytes([0xAA, 0x55])
@@ -33,18 +47,14 @@ FILES_TO_SEND = [
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Send weights to FPGA via UART")
-    parser.add_argument("port", help="Serial port (e.g., COM3, /dev/ttyUSB0)")
-    parser.add_argument("--baud", type=int, default=115200, help="Baud rate (default: 115200)")
-    parser.add_argument("--dir", default="BIN_files", help="Directory with .bin files")
-    args = parser.parse_args()
-    
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    bin_dir = os.path.join(script_dir, args.dir)
+    bin_dir = os.path.join(script_dir, BIN_DIR)
     
     # Collect all data
     all_data = bytearray()
     
+    print("Two-Hidden-Layer Neural Network - Weight Upload")
+    print("=" * 50)
     print("Loading binary files...")
     print("-" * 50)
     
@@ -53,6 +63,9 @@ def main():
         
         if not os.path.exists(filepath):
             print(f"ERROR: {filename} not found!")
+            print(f"Looking in: {bin_dir}")
+            print("\nMake sure you've run the training script first:")
+            print("  python training/siec_2_ukryte.py")
             sys.exit(1)
         
         with open(filepath, "rb") as f:
@@ -63,6 +76,15 @@ def main():
     
     print("-" * 50)
     print(f"  Total data          : {len(all_data):6} bytes")
+    
+    # Verify expected size
+    expected_size = 13128  # 12,960 weights + 168 biases
+    if len(all_data) != expected_size:
+        print(f"\n⚠ WARNING: Expected {expected_size} bytes, got {len(all_data)} bytes!")
+        print("  This may indicate incorrect model parameters.")
+        response = input("Continue anyway? (y/n): ")
+        if response.lower() != 'y':
+            sys.exit(1)
     print()
     
     # Check for accidental marker bytes in data
@@ -76,19 +98,29 @@ def main():
             sys.exit(1)
     
     # Open serial port
-    print(f"Opening {args.port} at {args.baud} baud...")
+    print(f"Serial port:        {PORT}")
+    print(f"Baud rate:          {BAUD_RATE}")
+    print(f"Binary directory:   {bin_dir}")
+    print("=" * 50)
+    print()
+    print(f"Opening {PORT} at {BAUD_RATE} baud...")
     
     try:
         ser = serial.Serial(
-            port=args.port,
-            baudrate=args.baud,
+            port=PORT,
+            baudrate=BAUD_RATE,
             bytesize=serial.EIGHTBITS,
             parity=serial.PARITY_NONE,
             stopbits=serial.STOPBITS_ONE,
             timeout=1
         )
     except serial.SerialException as e:
-        print(f"ERROR: Could not open serial port: {e}")
+        print(f"\nERROR: Could not open serial port: {e}")
+        print("\nTroubleshooting:")
+        print("  1. Check if the correct COM port is specified")
+        print("  2. Make sure no other program is using the port")
+        print("  3. Verify the FPGA is connected and powered on")
+        print("  4. On Windows, check Device Manager for COM port number")
         sys.exit(1)
     
     # Wait a moment for FPGA to be ready
@@ -97,7 +129,7 @@ def main():
     
     # Calculate expected transmission time
     total_bytes = len(START_MARKER) + len(all_data) + len(END_MARKER)
-    expected_time = (total_bytes * 10) / args.baud  # 10 bits per byte (8 data + start + stop)
+    expected_time = (total_bytes * 10) / BAUD_RATE  # 10 bits per byte (8 data + start + stop)
     
     print()
     print(f"Sending {total_bytes} bytes...")

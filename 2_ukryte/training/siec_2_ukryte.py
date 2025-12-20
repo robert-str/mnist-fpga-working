@@ -6,6 +6,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
+from torchinfo import summary
 
 # %%
 # Prepare torchvision MNIST datasets and loaders
@@ -54,6 +55,8 @@ model = MNISTTwoHidden(input_dim=input_dim, hidden_dim1=hidden_dim1, hidden_dim2
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 print(model)
+print("\nModel Summary:")
+summary(model, input_size=(1, 28, 28))
 
 # %%
 # Train and evaluate
@@ -105,6 +108,13 @@ for epoch in range(1, num_epochs + 1):
 
 print(f"\nFinal test accuracy: {test_acc:.2f}%")
 
+# Save the trained model
+output_model_dir = os.path.join(script_dir := os.path.dirname(os.path.abspath(__file__)), "..", "outputs")
+os.makedirs(output_model_dir, exist_ok=True)
+model_save_path = os.path.join(output_model_dir, "model.pth")
+torch.save(model.state_dict(), model_save_path)
+print(f"Model saved to: {model_save_path}")
+
 # %%
 # Extract weights and biases from trained model
 print("\nExtracting weights and biases...")
@@ -125,16 +135,24 @@ print(f"L2 weights shape: {L2_weight.shape}, biases: {L2_bias.shape}")
 print(f"L3 weights shape: {L3_weight.shape}, biases: {L3_bias.shape}")
 
 # %%
-# Quantization with dynamic scaling
+# Quantization with dynamic scaling AND hardware right-shifts to prevent overflow
 print("\nQuantizing weights and biases...")
 
 # Input scale (inputs will be quantized to int8 range)
 INPUT_SCALE = 127.0
 
+# Hardware right-shift amounts (to prevent overflow in 32-bit accumulators)
+# These shifts are applied in FPGA after each layer's accumulation
+SHIFT1 = 7  # Right-shift after Layer 1 (divide by 128)
+SHIFT2 = 7  # Right-shift after Layer 2 (divide by 128)
+
+print(f"Hardware shifts: Layer 1 >> {SHIFT1}, Layer 2 >> {SHIFT2}")
+
 # Layer 1: Quantize weights
 max_abs_L1_W = np.max(np.abs(L1_weight))
 L1_W_SCALE = 127.0 / max_abs_L1_W
 L1_weight_int8 = np.clip(np.round(L1_weight * L1_W_SCALE), -127, 127).astype(np.int8)
+# Bias scale is applied BEFORE the shift
 L1_BIAS_SCALE = L1_W_SCALE * INPUT_SCALE
 L1_bias_int32 = np.round(L1_bias * L1_BIAS_SCALE).astype(np.int32)
 
@@ -144,16 +162,16 @@ print(f"  Weight range: [{L1_weight.min():.4f}, {L1_weight.max():.4f}] -> [{L1_w
 print(f"  Bias scale: {L1_BIAS_SCALE:.4f}")
 print(f"  Bias range: [{L1_bias.min():.4f}, {L1_bias.max():.4f}] -> [{L1_bias_int32.min()}, {L1_bias_int32.max()}]")
 
-# Output of L1 needs scaling for next layer input
-# After L1: output = (input_int8 @ weight_int8.T + bias_int32)
-# To normalize back: output_float ≈ output / (INPUT_SCALE * L1_W_SCALE)
-# But ReLU is applied, then we scale for next layer
-L1_OUTPUT_SCALE = INPUT_SCALE * L1_W_SCALE
+# Output of L1 after hardware shift
+# After L1: output = (input_int8 @ weight_int8.T + bias_int32) >> SHIFT1
+L1_OUTPUT_SCALE = (INPUT_SCALE * L1_W_SCALE) / (2 ** SHIFT1)
+print(f"  Output scale (after shift): {L1_OUTPUT_SCALE:.4f}")
 
-# Layer 2: Input scale is L1's output scale
+# Layer 2: Input scale is L1's output scale (after shift)
 max_abs_L2_W = np.max(np.abs(L2_weight))
 L2_W_SCALE = 127.0 / max_abs_L2_W
 L2_weight_int8 = np.clip(np.round(L2_weight * L2_W_SCALE), -127, 127).astype(np.int8)
+# Bias scale accounts for L1's shifted output
 L2_BIAS_SCALE = L2_W_SCALE * L1_OUTPUT_SCALE
 L2_bias_int32 = np.round(L2_bias * L2_BIAS_SCALE).astype(np.int32)
 
@@ -163,12 +181,15 @@ print(f"  Weight range: [{L2_weight.min():.4f}, {L2_weight.max():.4f}] -> [{L2_w
 print(f"  Bias scale: {L2_BIAS_SCALE:.4f}")
 print(f"  Bias range: [{L2_bias.min():.4f}, {L2_bias.max():.4f}] -> [{L2_bias_int32.min()}, {L2_bias_int32.max()}]")
 
-L2_OUTPUT_SCALE = L1_OUTPUT_SCALE * L2_W_SCALE
+# Output of L2 after hardware shift
+L2_OUTPUT_SCALE = (L1_OUTPUT_SCALE * L2_W_SCALE) / (2 ** SHIFT2)
+print(f"  Output scale (after shift): {L2_OUTPUT_SCALE:.4f}")
 
-# Layer 3: Input scale is L2's output scale  
+# Layer 3: Input scale is L2's output scale (after shift)
 max_abs_L3_W = np.max(np.abs(L3_weight))
 L3_W_SCALE = 127.0 / max_abs_L3_W
 L3_weight_int8 = np.clip(np.round(L3_weight * L3_W_SCALE), -127, 127).astype(np.int8)
+# Bias scale accounts for L2's shifted output
 L3_BIAS_SCALE = L3_W_SCALE * L2_OUTPUT_SCALE
 L3_bias_int32 = np.round(L3_bias * L3_BIAS_SCALE).astype(np.int32)
 
@@ -177,6 +198,7 @@ print(f"  Weight scale: {L3_W_SCALE:.4f}")
 print(f"  Weight range: [{L3_weight.min():.4f}, {L3_weight.max():.4f}] -> [{L3_weight_int8.min()}, {L3_weight_int8.max()}]")
 print(f"  Bias scale: {L3_BIAS_SCALE:.4f}")
 print(f"  Bias range: [{L3_bias.min():.4f}, {L3_bias.max():.4f}] -> [{L3_bias_int32.min()}, {L3_bias_int32.max()}]")
+print(f"  Final output scale: {L3_W_SCALE * L2_OUTPUT_SCALE:.4f}")
 
 # %%
 # Save to .MEM files (hex format, two's complement)
@@ -254,18 +276,20 @@ print("\nSaving scale information...")
 scale_info_path = os.path.join(output_npy_dir, "scale_info.txt")
 with open(scale_info_path, "w") as f:
     f.write("=== Two-Hidden-Layer Network Quantization ===\n\n")
-    f.write(f"Input scale factor: {INPUT_SCALE}\n\n")
+    f.write(f"Input scale factor: {INPUT_SCALE}\n")
+    f.write(f"Hardware shifts: Layer 1 >> {SHIFT1}, Layer 2 >> {SHIFT2}\n\n")
     f.write(f"Layer 1:\n")
     f.write(f"  Weight scale: {L1_W_SCALE}\n")
     f.write(f"  Bias scale: {L1_BIAS_SCALE}\n")
-    f.write(f"  Output scale: {L1_OUTPUT_SCALE}\n\n")
+    f.write(f"  Output scale (after shift): {L1_OUTPUT_SCALE}\n\n")
     f.write(f"Layer 2:\n")
     f.write(f"  Weight scale: {L2_W_SCALE}\n")
     f.write(f"  Bias scale: {L2_BIAS_SCALE}\n")
-    f.write(f"  Output scale: {L2_OUTPUT_SCALE}\n\n")
+    f.write(f"  Output scale (after shift): {L2_OUTPUT_SCALE}\n\n")
     f.write(f"Layer 3:\n")
     f.write(f"  Weight scale: {L3_W_SCALE}\n")
-    f.write(f"  Bias scale: {L3_BIAS_SCALE}\n\n")
+    f.write(f"  Bias scale: {L3_BIAS_SCALE}\n")
+    f.write(f"  Final output scale: {L3_W_SCALE * L2_OUTPUT_SCALE}\n\n")
     f.write(f"Final test accuracy: {test_acc:.2f}%\n")
 
 # Save normalization parameters (mean=0.1307, std=0.3081 for MNIST)
