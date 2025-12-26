@@ -242,101 +242,111 @@ module tb_inference();
         $display("");
         
         // Load L1 weights with error checking
-        file_check = $fopen("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L1_weights.mem", "r");
+        file_check = $fopen("L1_weights.mem", "r");
         if (file_check == 0) begin
-            $display("ERROR: Cannot open C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L1_weights.mem");
+            $display("ERROR: Cannot open L1_weights.mem");
+            $display("  Make sure L1_weights.mem is added as simulation source");
             $finish;
         end
         $fclose(file_check);
-        $readmemh("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L1_weights.mem", L1_weights_mem);
+        $readmemh("L1_weights.mem", L1_weights_mem);
         $display("  [OK] Loaded L1 weights: 12544 entries");
         
         // Load L1 biases with error checking
-        file_check = $fopen("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L1_biases.mem", "r");
+        file_check = $fopen("L1_biases.mem", "r");
         if (file_check == 0) begin
-            $display("ERROR: Cannot open C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L1_biases.mem");
+            $display("ERROR: Cannot open L1_biases.mem");
+            $display("  Make sure L1_biases.mem is added as simulation source");
             $finish;
         end
         $fclose(file_check);
-        $readmemh("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L1_biases.mem", L1_biases_mem);
+        $readmemh("L1_biases.mem", L1_biases_mem);
         $display("  [OK] Loaded L1 biases: 16 entries");
         
         // Load L2 weights with error checking
-        file_check = $fopen("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L2_weights.mem", "r");
+        file_check = $fopen("L2_weights.mem", "r");
         if (file_check == 0) begin
-            $display("ERROR: Cannot open C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L2_weights.mem");
+            $display("ERROR: Cannot open L2_weights.mem");
+            $display("  Make sure L2_weights.mem is added as simulation source");
             $finish;
         end
         $fclose(file_check);
-        $readmemh("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L2_weights.mem", L2_weights_mem);
+        $readmemh("L2_weights.mem", L2_weights_mem);
         $display("  [OK] Loaded L2 weights: 256 entries");
         
         // Load L2 biases with error checking
-        file_check = $fopen("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L2_biases.mem", "r");
+        file_check = $fopen("L2_biases.mem", "r");
         if (file_check == 0) begin
-            $display("ERROR: Cannot open C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L2_biases.mem");
+            $display("ERROR: Cannot open L2_biases.mem");
+            $display("  Make sure L2_biases.mem is added as simulation source");
             $finish;
         end
         $fclose(file_check);
-        $readmemh("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L2_biases.mem", L2_biases_mem);
+        $readmemh("L2_biases.mem", L2_biases_mem);
         $display("  [OK] Loaded L2 biases: 16 entries");
         
         // Load L3 weights with error checking
-        file_check = $fopen("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L3_weights.mem", "r");
+        file_check = $fopen("L3_weights.mem", "r");
         if (file_check == 0) begin
-            $display("ERROR: Cannot open C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L3_weights.mem");
+            $display("ERROR: Cannot open L3_weights.mem");
+            $display("  Make sure L3_weights.mem is added as simulation source");
             $finish;
         end
         $fclose(file_check);
-        $readmemh("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L3_weights.mem", L3_weights_mem);
+        $readmemh("L3_weights.mem", L3_weights_mem);
         $display("  [OK] Loaded L3 weights: 160 entries");
         
         // Load L3 biases with error checking
-        file_check = $fopen("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L3_biases.mem", "r");
+        file_check = $fopen("L3_biases.mem", "r");
         if (file_check == 0) begin
-            $display("ERROR: Cannot open C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L3_biases.mem");
+            $display("ERROR: Cannot open L3_biases.mem");
+            $display("  Make sure L3_biases.mem is added as simulation source");
             $finish;
         end
         $fclose(file_check);
-        $readmemh("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/L3_biases.mem", L3_biases_mem);
+        $readmemh("L3_biases.mem", L3_biases_mem);
         $display("  [OK] Loaded L3 biases: 10 entries");
         
         // Load test vectors (flattened format) with error checking
-        file_check = $fopen("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/test_vectors_pixels.mem", "r");
+        file_check = $fopen("test_vectors_pixels.mem", "r");
         if (file_check == 0) begin
-            $display("ERROR: Cannot open C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/test_vectors_pixels.mem");
+            $display("ERROR: Cannot open test_vectors_pixels.mem");
+            $display("  Make sure test_vectors_pixels.mem is added as simulation source");
             $display("  Run generate_test_vectors.py first!");
             $finish;
         end
         $fclose(file_check);
-        $readmemh("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/test_vectors_pixels.mem", test_pixels_flat);
+        $readmemh("test_vectors_pixels.mem", test_pixels_flat);
         $display("  [OK] Loaded pixel vectors: 78400 values");
         
-        file_check = $fopen("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/test_vectors_scores.mem", "r");
+        file_check = $fopen("test_vectors_scores.mem", "r");
         if (file_check == 0) begin
-            $display("ERROR: Cannot open C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/test_vectors_scores.mem");
+            $display("ERROR: Cannot open test_vectors_scores.mem");
+            $display("  Make sure test_vectors_scores.mem is added as simulation source");
             $finish;
         end
         $fclose(file_check);
-        $readmemh("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/test_vectors_scores.mem", expected_scores_flat);
+        $readmemh("test_vectors_scores.mem", expected_scores_flat);
         $display("  [OK] Loaded score vectors: 1000 values");
         
-        file_check = $fopen("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/test_vectors_meta.mem", "r");
+        file_check = $fopen("test_vectors_meta.mem", "r");
         if (file_check == 0) begin
-            $display("ERROR: Cannot open C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/test_vectors_meta.mem");
+            $display("ERROR: Cannot open test_vectors_meta.mem");
+            $display("  Make sure test_vectors_meta.mem is added as simulation source");
             $finish;
         end
         $fclose(file_check);
-        $readmemh("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/test_vectors_meta.mem", expected_predictions);
+        $readmemh("test_vectors_meta.mem", expected_predictions);
         $display("  [OK] Loaded predictions: 100 values");
         
-        file_check = $fopen("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/test_vectors_labels.mem", "r");
+        file_check = $fopen("test_vectors_labels.mem", "r");
         if (file_check == 0) begin
-            $display("ERROR: Cannot open C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/test_vectors_labels.mem");
+            $display("ERROR: Cannot open test_vectors_labels.mem");
+            $display("  Make sure test_vectors_labels.mem is added as simulation source");
             $finish;
         end
         $fclose(file_check);
-        $readmemh("C:/Users/micha/Desktop/other/TUL_university/SEM 7/mnist-fpga/2_ukryte/outputs/mem/test_vectors_labels.mem", true_labels);
+        $readmemh("test_vectors_labels.mem", true_labels);
         $display("  [OK] Loaded labels: 100 values");
         
         $display("  [OK] Loaded test vectors: %0d test cases", NUM_TEST_CASES);

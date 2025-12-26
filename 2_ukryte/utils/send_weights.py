@@ -27,7 +27,7 @@ import sys
 import time
 
 # Configuration
-PORT = "COM3"           # Serial port
+PORT = "COM7"           # Serial port
 BAUD_RATE = 115200      # Baud rate
 BIN_DIR = "../outputs/bin"  # Directory with binary files
 
@@ -143,9 +143,9 @@ def main():
     ser.write(START_MARKER)
     ser.flush()
     
-    # Send data with progress indicator
+# Send data with progress indicator
     print("Sending data", end="", flush=True)
-    chunk_size = 256
+    chunk_size = 64  # Reduced chunk size for safety
     bytes_sent = 0
     
     for i in range(0, len(all_data), chunk_size):
@@ -157,9 +157,10 @@ def main():
         progress = bytes_sent / len(all_data) * 100
         print(f"\rSending data: {bytes_sent:6}/{len(all_data)} bytes ({progress:5.1f}%)", end="", flush=True)
         
-        # Small delay to prevent buffer overflow (optional, usually not needed)
-        # time.sleep(0.001)
-    
+        # === CRITICAL FIX: Give FPGA time to write to BRAM ===
+        time.sleep(0.005) # 5ms delay between chunks
+        # ====================================================
+        
     ser.flush()
     print()
     

@@ -38,7 +38,7 @@ SHIFT1 = 7  # After Layer 1
 SHIFT2 = 7  # After Layer 2
 
 # Default Configuration
-DEFAULT_COM_PORT = 'COM3'
+DEFAULT_COM_PORT = 'COM7'
 DEFAULT_BAUD_RATE = 115200
 DEFAULT_TEST_SAMPLES = 100
 DEFAULT_OUTPUT_FILE = '../outputs/txt/comparison_output.txt'
@@ -336,14 +336,23 @@ def read_scores_from_fpga(ser):
 
 def send_image_to_fpga(ser, image_bytes):
     """
-    Send preprocessed image to FPGA via UART.
-    
-    Args:
-        ser: Serial connection
-        image_bytes: Preprocessed image as uint8 array (784 bytes)
+    Send preprocessed image to FPGA via UART with Safety Delays.
     """
+    # 1. Send Start Marker
     ser.write(IMG_START_MARKER)
-    ser.write(image_bytes.tobytes())
+    
+    # 2. Send Image Data in Chunks
+    chunk_size = 64  # Small chunks to prevent buffer overflow
+    total_len = len(image_bytes)
+    
+    for i in range(0, total_len, chunk_size):
+        chunk = image_bytes[i:i+chunk_size].tobytes()
+        ser.write(chunk)
+        # === THE MAGIC FIX: Tiny delay to let FPGA process ===
+        time.sleep(0.002) 
+        # ====================================================
+        
+    # 3. Send End Marker
     ser.write(IMG_END_MARKER)
     ser.flush()
 

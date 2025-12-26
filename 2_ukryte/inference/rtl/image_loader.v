@@ -1,12 +1,10 @@
 /*
 ================================================================================
-Image Loader - Receives 784-byte image via routed UART data
+Image Loader - Fixed Alignment
 ================================================================================
-Protocol: Receives data bytes from uart_router (start/end markers handled there)
-          Data format: 784 pixel bytes
-          
-NOTE: This module NO LONGER has its own uart_rx!
-      It receives pre-routed data from uart_router.
+Update: Added `first_byte_flag` to drop the 0x66 protocol marker that the 
+router passes through at the start of transmission.
+This ensures Pixel 0 lands in Address 0, not Address 1.
 ================================================================================
 */
 
@@ -39,6 +37,7 @@ module image_loader (
     reg [1:0] state;
     reg [9:0] byte_count;
     reg [7:0] prev_byte;
+    reg first_byte_flag;  // <--- NEW: Flag to drop the start marker
 
     always @(posedge clk) begin
         if (rst) begin
@@ -49,6 +48,7 @@ module image_loader (
             byte_count <= 0;
             prev_byte <= 0;
             image_loaded <= 0;
+            first_byte_flag <= 1; // <--- Initialize to 1
         end else begin
             wr_en <= 0;
             image_loaded <= 0;
@@ -58,22 +58,34 @@ module image_loader (
                 case (state)
                     STATE_RECEIVING: begin
                         if (rx_ready) begin
-                            // First, store the previous byte if we have data pending
-                            if (byte_count > 0 && byte_count <= IMG_SIZE) begin
-                                wr_addr <= byte_count - 1;
-                                wr_data <= prev_byte;
-                                wr_en <= 1;
+                            // === FIX START: Drop the first byte (0x66 marker) ===
+                            if (first_byte_flag) begin
+                                first_byte_flag <= 0;
+                                // Do NOT increment byte_count or write anything.
+                                // We just consume the marker and wait for real data.
+                            end 
+                            else begin
+                                // === Normal Processing ===
+                                
+                                // First, store the previous byte if we have data pending
+                                if (byte_count > 0 && byte_count <= IMG_SIZE) begin
+                                    wr_addr <= byte_count - 1;
+                                    wr_data <= prev_byte;
+                                    wr_en <= 1;
+                                end
+                                
+                                // Check for end marker after storing
+                                // We check byte_count >= IMG_SIZE to ensure binary safety
+                                if (byte_count >= IMG_SIZE && prev_byte == IMG_END1 && rx_data == IMG_END2) begin
+                                    state <= STATE_DONE;
+                                    image_loaded <= 1;
+                                end else begin
+                                    // Advance counter and store current byte for next iteration
+                                    byte_count <= byte_count + 1;
+                                    prev_byte <= rx_data;
+                                end
                             end
-                            
-                            // Check for end marker after storing
-                            if (prev_byte == IMG_END1 && rx_data == IMG_END2 && byte_count >= IMG_SIZE) begin
-                                state <= STATE_DONE;
-                                image_loaded <= 1;
-                            end else begin
-                                // Advance counter and store current byte for next iteration
-                                byte_count <= byte_count + 1;
-                                prev_byte <= rx_data;
-                            end
+                            // === FIX END ===
                         end
                     end
                     
@@ -82,6 +94,7 @@ module image_loader (
                         state <= STATE_RECEIVING;
                         byte_count <= 0;
                         prev_byte <= 0;
+                        first_byte_flag <= 1; // <--- Reset flag for next image
                     end
                 endcase
             end

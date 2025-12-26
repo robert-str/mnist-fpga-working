@@ -1,8 +1,11 @@
 /*
 ================================================================================
-UART Transmitter Module (115200 baud compatible)
+UART Transmitter Module - Handshake Fix
 ================================================================================
-Universal UART TX module for transmitting serial data.
+Update: "busy" signal is now Combinational logic.
+This prevents a race condition where the consumer (scores_reader) would check
+"busy" one cycle before the UART actually raised it, causing data overwrite
+during burst transmissions.
 ================================================================================
 */
 
@@ -12,10 +15,10 @@ module uart_tx #(
 )(
     input wire clk,
     input wire rst,
-    input wire [7:0] data,      // Byte to transmit
-    input wire send,            // Pulse to start transmission
-    output reg tx,              // UART TX output line
-    output reg busy             // HIGH while transmitting
+    input wire [7:0] data,       // Byte to transmit
+    input wire send,             // Pulse to start transmission
+    output reg tx,               // UART TX output line
+    output wire busy             // HIGH while transmitting (Combinational)
 );
 
     localparam CLKS_PER_BIT = CLK_FREQ / BAUD_RATE;
@@ -30,6 +33,11 @@ module uart_tx #(
     reg [15:0] clk_cnt;           // Clock counter
     reg [2:0] bit_cnt;            // Bit counter (0-7)
     reg [7:0] tx_shift;           // Shift register for outgoing bits
+    reg tx_reg;                   // Registered TX value
+
+    // === FIX: Combinational Busy Signal ===
+    // Busy if we are not in IDLE state OR if we are commanded to send
+    assign busy = (state != STATE_IDLE) || send;
 
     // UART transmit state machine
     always @(posedge clk) begin
@@ -39,20 +47,17 @@ module uart_tx #(
             bit_cnt <= 0;
             tx <= 1'b1;  // Idle state is HIGH
             tx_shift <= 0;
-            busy <= 0;
         end else begin
             case (state)
                 // ----------------------------------------
                 // IDLE: Wait for send signal
                 // ----------------------------------------
                 STATE_IDLE: begin
-                    tx <= 1'b1;  // Idle state is HIGH
-                    busy <= 0;
+                    tx <= 1'b1;
                     if (send) begin
                         state <= STATE_START;
                         tx_shift <= data;
                         clk_cnt <= 0;
-                        busy <= 1;
                     end
                 end
                 
@@ -60,7 +65,7 @@ module uart_tx #(
                 // START: Send start bit (LOW)
                 // ----------------------------------------
                 STATE_START: begin
-                    tx <= 1'b0;  // Start bit is LOW
+                    tx <= 1'b0;
                     if (clk_cnt == CLKS_PER_BIT - 1) begin
                         clk_cnt <= 0;
                         bit_cnt <= 0;
@@ -92,7 +97,7 @@ module uart_tx #(
                 // STOP: Send stop bit (HIGH)
                 // ----------------------------------------
                 STATE_STOP: begin
-                    tx <= 1'b1;  // Stop bit is HIGH
+                    tx <= 1'b1;
                     if (clk_cnt == CLKS_PER_BIT - 1) begin
                         clk_cnt <= 0;
                         state <= STATE_IDLE;
@@ -107,4 +112,3 @@ module uart_tx #(
     end
 
 endmodule
-

@@ -1,28 +1,11 @@
 /*
 ================================================================================
-UART Router - Single RX Demultiplexer for the Entire System
+UART Router - Binary Safe Version
 ================================================================================
-
-This module is the ONLY uart_rx instance in the system. It receives all bytes
-and routes them to the appropriate handler based on protocol markers:
-
-Protocols:
-  1. Weight Loading:  0xAA 0x55 ... data ... 0x55 0xAA
-  2. Image Loading:   0xBB 0x66 ... data ... 0x66 0xBB
-  3. Digit Request:   0xCC (single byte command)
-  4. Scores Request:  0xCD (single byte command)
-
-Architecture:
-  - Single uart_rx receives ALL bytes
-  - Protocol state machine determines where bytes go
-  - Data is routed to weight_loader, image_loader, or command handlers
-
-Model: Two-Hidden-Layer Neural Network for MNIST
-  - Layer 1: 784 -> 16 (12,544 weights + 64 biases)
-  - Layer 2: 16 -> 16 (256 weights + 64 biases)
-  - Layer 3: 16 -> 10 (160 weights + 40 biases)
-  - Total: 13,128 bytes (12,960 weights + 168 biases)
-
+Fix: Implementation of Byte Counting to ensure Binary Safety.
+We strictly ignore "End Markers" until the expected number of data bytes 
+has been received. This prevents random weights/pixels that resemble 
+protocol markers from terminating the transfer early.
 ================================================================================
 */
 
@@ -89,7 +72,7 @@ module uart_router (
     
     // State registers
     reg [3:0] state;
-    reg [14:0] byte_count;  // Counter for data bytes (up to 13,128, needs 15 bits)
+    reg [14:0] byte_count;  // Counter for data bytes
     reg [7:0] prev_byte;    // For detecting end markers
     
     always @(posedge clk) begin
@@ -121,7 +104,6 @@ module uart_router (
                                 if (!weights_loaded) begin
                                     state <= STATE_WAIT_WEIGHT2;
                                 end
-                                // If weights already loaded, ignore
                             end
                             
                             // Image loading start marker (first byte)
@@ -129,10 +111,9 @@ module uart_router (
                                 if (weights_loaded) begin
                                     state <= STATE_WAIT_IMAGE2;
                                 end
-                                // If weights not loaded, ignore
                             end
                             
-                            // Single-byte commands (only valid after weights loaded)
+                            // Single-byte commands
                             CMD_DIGIT_READ, CMD_SCORES_READ: begin
                                 if (weights_loaded) begin
                                     cmd_rx_data <= rx_data;
@@ -141,7 +122,7 @@ module uart_router (
                             end
                             
                             default: begin
-                                // Unknown byte in IDLE, ignore
+                                // Unknown byte, ignore
                             end
                         endcase
                     end
@@ -162,17 +143,16 @@ module uart_router (
                             weight_rx_data <= WEIGHT_START2;
                             weight_rx_ready <= 1;
                         end else if (rx_data == WEIGHT_START1) begin
-                            // Another 0xAA, stay waiting for 0x55
+                            // Another 0xAA, stay waiting
                             state <= STATE_WAIT_WEIGHT2;
                         end else begin
-                            // Invalid sequence, go back to idle
                             state <= STATE_IDLE;
                         end
                     end
                 end
                 
                 // ============================================================
-                // Receiving weight data
+                // Receiving weight data (BINARY SAFE)
                 // ============================================================
                 STATE_RECEIVING_WEIGHTS: begin
                     if (rx_ready) begin
@@ -184,19 +164,20 @@ module uart_router (
                         byte_count <= byte_count + 1;
                         prev_byte <= rx_data;
 
-                        // === CRITICAL FIX START ===
-                        // Only check for end marker if we have received at least the expected amount of data.
-                        // This prevents random weight values that happen to be 0x55 0xAA from 
-                        // terminating the transfer early.
+                        // === BINARY SAFETY FIX ===
+                        // We strictly verify that we have received at least the expected 
+                        // amount of data BEFORE we start looking for the End Marker.
+                        // byte_count updates non-blocking, so we use +1 logic or > comparison.
+                        // We wait until byte_count > WEIGHT_DATA_SIZE to ensure we are 
+                        // looking at the marker bytes, not the data bytes.
                         if (byte_count >= WEIGHT_DATA_SIZE) begin
                             if (prev_byte == WEIGHT_END1 && rx_data == WEIGHT_END2) begin
                                 // End of weight transfer
                                 state <= STATE_IDLE;
                             end
                         end
-                        // === CRITICAL FIX END ===
                         
-                        // Safety: Hard abort if way too many bytes (prevents locking up if marker is missed)
+                        // Safety timeout (overflow protection)
                         if (byte_count > WEIGHT_DATA_SIZE + 10) begin
                             state <= STATE_IDLE;
                         end
@@ -209,48 +190,38 @@ module uart_router (
                 STATE_WAIT_IMAGE2: begin
                     if (rx_ready) begin
                         if (rx_data == IMAGE_START2) begin
-                            // Valid start sequence, begin receiving image
                             state <= STATE_RECEIVING_IMAGE;
                             byte_count <= 0;
                             prev_byte <= 0;
                             
-                            // Forward start markers to image_loader
                             image_rx_data <= IMAGE_START2;
                             image_rx_ready <= 1;
                         end else if (rx_data == IMAGE_START1) begin
-                            // Another 0xBB, stay waiting for 0x66
                             state <= STATE_WAIT_IMAGE2;
                         end else begin
-                            // Invalid sequence, go back to idle
                             state <= STATE_IDLE;
                         end
                     end
                 end
                 
                 // ============================================================
-                // Receiving image data
+                // Receiving image data (BINARY SAFE)
                 // ============================================================
                 STATE_RECEIVING_IMAGE: begin
                     if (rx_ready) begin
-                        // Forward byte to image_loader
                         image_rx_data <= rx_data;
                         image_rx_ready <= 1;
                         
-                        // Increment counter
                         byte_count <= byte_count + 1;
                         prev_byte <= rx_data;
 
-                        // === CRITICAL FIX START ===
-                        // Only check for end marker if we have received enough data.
+                        // === BINARY SAFETY FIX ===
                         if (byte_count >= IMAGE_DATA_SIZE) begin
                             if (prev_byte == IMAGE_END1 && rx_data == IMAGE_END2) begin
-                                // End of image transfer
                                 state <= STATE_IDLE;
                             end
                         end
-                        // === CRITICAL FIX END ===
 
-                        // Safety
                         if (byte_count > IMAGE_DATA_SIZE + 10) begin
                             state <= STATE_IDLE;
                         end
