@@ -63,8 +63,7 @@ module uart_router (
                     if (rx_data == WEIGHT_START2) begin
                         state <= RECV_W;
                         byte_count <= 0;
-                        weight_rx_data <= rx_data;
-                        weight_rx_ready <= 1;
+                        // Do NOT forward the 0x55 marker byte to the weight loader
                     end else state <= IDLE;
                 end
 
@@ -94,9 +93,8 @@ module uart_router (
                     if (rx_data == IMAGE_START2) begin
                         state <= RECV_I;
                         byte_count <= 0;
-                        // CHANGE: Do NOT pass the 0x66 marker to the loader
-                        // image_rx_data <= rx_data;  <-- DELETE THIS
-                        // image_rx_ready <= 1;       <-- DELETE THIS
+                        prev_byte <= 0;
+                        // Do NOT forward the 0x66 marker byte to the image loader
                     end else state <= IDLE;
                 end
 
@@ -104,14 +102,15 @@ module uart_router (
                     byte_count <= byte_count + 1;
                     prev_byte <= rx_data;
                     
-                    // Only forward bytes that are part of the payload
-                    // Allow payload (IMAGE_SIZE) + 2 marker bytes to pass
+                    // --- FIX IS HERE ---
+                    // Allow Payload (784) + 2 Marker bytes to pass to the loader
                     if (byte_count < IMAGE_SIZE + 2) begin
                         image_rx_data <= rx_data;
                         image_rx_ready <= 1;
+                    end else begin
+                        image_rx_ready <= 0;
                     end
                     
-                    // Check for end markers only after payload complete
                     if (byte_count >= IMAGE_SIZE && prev_byte == IMAGE_END1 && rx_data == IMAGE_END2) begin
                         state <= DONE_I;
                     end

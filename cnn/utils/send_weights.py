@@ -16,7 +16,6 @@ END_MARKER   = np.array([0x55, 0xAA], dtype=np.uint8)
 
 def load_files(base_path):
     """Load weights from binary files into numpy arrays."""
-    # Updated file list for 2-Layer CNN
     files = [
         ("conv1_weights.bin", "L1 Weights"),
         ("conv1_biases.bin",  "L1 Biases"),
@@ -75,17 +74,22 @@ def send_weights(port, baud):
         print(f"Error opening port {port}: {e}")
         return 1
 
-    print(f"Sending to {port}...")
+    print(f"Sending to {port} (SLOW & SAFE MODE)...")
     start_time = time.time()
     
-    # Send in chunks
-    CHUNK_SIZE = 64
+    # --- SLOW MODE SETTINGS ---
+    # Reduced chunk size and increased delay to prevent buffer overflow
+    CHUNK_SIZE = 16      
+    DELAY = 0.020        # 20ms delay
+    # --------------------------
+
     bytes_sent = 0
     raw_bytes = all_data.tobytes()
     
     for i in range(0, len(raw_bytes), CHUNK_SIZE):
         chunk = raw_bytes[i : i + CHUNK_SIZE]
         ser.write(chunk)
+        ser.flush()
         bytes_sent += len(chunk)
         
         # Progress Bar
@@ -93,7 +97,7 @@ def send_weights(port, baud):
         sys.stdout.write(f"\rProgress: {progress:.1f}% ({bytes_sent}/{total_packet_size})")
         sys.stdout.flush()
         
-        time.sleep(0.005) 
+        time.sleep(DELAY) 
 
     print("\nDone.")
     elapsed = time.time() - start_time

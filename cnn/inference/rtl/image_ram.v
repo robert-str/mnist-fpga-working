@@ -1,6 +1,6 @@
 /*
 ================================================================================
-Image RAM (784 bytes)
+Image RAM (784 bytes) - Distributed/Asynchronous
 ================================================================================
 */
 
@@ -10,10 +10,10 @@ module image_ram (
     input wire [7:0] wr_data,
     input wire wr_en,
     input wire [9:0] rd_addr,
-    output reg [7:0] rd_data
+    output wire [7:0] rd_data // Changed to wire
 );
 
-    (* ram_style = "block" *) reg [7:0] ram [0:783];
+    (* ram_style = "distributed" *) reg [7:0] ram [0:783];
     
     // Synchronous write
     always @(posedge clk) begin
@@ -22,10 +22,8 @@ module image_ram (
         end
     end
     
-    // Synchronous read
-    always @(posedge clk) begin
-        rd_data <= ram[rd_addr];
-    end
+    // Asynchronous read
+    assign rd_data = ram[rd_addr];
 
 endmodule
 

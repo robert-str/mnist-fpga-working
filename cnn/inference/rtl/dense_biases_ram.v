@@ -10,19 +10,18 @@ module dense_biases_ram (
     input wire [31:0] wr_data,
     input wire wr_en,
     input wire [3:0] rd_addr,
-    output reg [31:0] rd_data
+    output wire [31:0] rd_data // Changed to wire
 );
 
-    (* ram_style = "block" *) reg [31:0] ram [0:9];
+    (* ram_style = "distributed" *) reg [31:0] ram [0:9];
     
     always @(posedge clk) begin
         if (wr_en) begin
             ram[wr_addr] <= wr_data;
         end
-        rd_data <= ram[rd_addr];
     end
 
+    // Asynchronous read
+    assign rd_data = ram[rd_addr];
+
 endmodule
-
-
-

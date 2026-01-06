@@ -113,11 +113,12 @@ def load_mnist_image(index):
         return None, None
 
 
-def send_chunked(ser, data, chunk_size=64, delay=0.005):
+def send_chunked(ser, data, chunk_size=32, delay=0.010):
     """Send data in chunks with flow control delay."""
     for i in range(0, len(data), chunk_size):
         chunk = data[i:i+chunk_size]
         ser.write(chunk)
+        ser.flush()  # Ensure transmission completes before next chunk
         time.sleep(delay)
 
 
@@ -186,6 +187,31 @@ def main():
         print(f"\n{'=' * 50}")
         print(f"Image sent successfully!")
         print(f"Total time: {elapsed_time:.2f} seconds")
+        
+        # Wait for FPGA to process the image
+        print(f"\nWaiting for FPGA to process image...")
+        time.sleep(0.5)
+        
+        # Verify by requesting the predicted digit
+        print(f"Requesting predicted digit from FPGA...")
+        ser.reset_input_buffer()
+        ser.write(bytes([0xCC]))  # Request digit command
+        ser.flush()
+        
+        # Read response (should be 1 byte with the digit)
+        time.sleep(0.1)  # Small delay for response
+        response = ser.read(1)
+        
+        if len(response) > 0:
+            predicted_digit = response[0]
+            print(f"FPGA predicted digit: {predicted_digit}")
+            if label is not None:
+                match_str = "✓ MATCH" if predicted_digit == label else "✗ MISMATCH"
+                print(f"Expected digit: {label} {match_str}")
+        else:
+            print(f"WARNING: No response received from FPGA")
+            print(f"  This may indicate the image was not processed correctly.")
+        
         print(f"\nThe FPGA should now perform inference.")
         print(f"Check the 7-segment display for the predicted digit.")
         if label is not None:

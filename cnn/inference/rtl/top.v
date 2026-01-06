@@ -74,6 +74,7 @@ module top (
     wire [7:0]  img_wr_data;
     wire        img_wr_en;
     wire        img_loaded;
+    wire [15:0] image_loader_debug_rx_count;
     
     wire [9:0]  img_rd_addr;
     wire [7:0]  img_rd_data;
@@ -112,7 +113,8 @@ module top (
     
     // Display
     wire [3:0] digit_left;
-    reg [15:0] led_reg;
+    
+    // DEBUG: Heartbeat counter
     reg [26:0] heartbeat_cnt;
 
     // =========================================================================
@@ -235,7 +237,8 @@ module top (
         .wr_addr(img_wr_addr),
         .wr_data(img_wr_data),
         .wr_en(img_wr_en),
-        .image_loaded(img_loaded)
+        .image_loaded(img_loaded),
+        .debug_rx_count(image_loader_debug_rx_count)
     );
 
     image_ram u_image_ram (
@@ -368,52 +371,73 @@ module top (
     );
 
     // =========================================================================
-    // 10. LED LOGIC
+    // 10. FLIGHT RECORDER LED LOGIC (DEBUG)
+    // =========================================================================
+    // These LEDs latch ON if a condition is ever met.
+    // To reset them, you must press the center button (RST).
     // =========================================================================
     always @(posedge clk) heartbeat_cnt <= heartbeat_cnt + 1;
 
+    reg [15:0] debug_latch;
+    
     always @(posedge clk) begin
         if (rst) begin
-            led_reg <= 0;
+            debug_latch <= 0;
         end else begin
-            if (!weights_loaded) begin
-                // SHOW LOADING PROGRESS
-                led_reg <= loader_led;
-            end else begin
-                // SHOW INFERENCE STATUS
-                led_reg[3:0] <= predicted_digit;
-                led_reg[4]   <= !inference_done;
-                led_reg[5]   <= inference_done;
-                led_reg[6]   <= img_loaded;
-                led_reg[7]   <= weights_loaded;
-                led_reg[15]  <= heartbeat_cnt[26]; 
-                led_reg[14:8]<= 0;
-            end
+            // -------------------------------------------------------------
+            // SYSTEM STATUS
+            // -------------------------------------------------------------
+            // [0] Weights Loaded (Steady)
+            debug_latch[0] <= weights_loaded;
+            
+            // [1] Image Loaded (Steady)
+            debug_latch[1] <= img_loaded;
+            
+            // -------------------------------------------------------------
+            // CONTROL SIGNALS (Latched)
+            // -------------------------------------------------------------
+            // [2] Did START Pulse trigger?
+            if (start_inference_pulse) debug_latch[2] <= 1;
+            
+            // [3] Did DONE Pulse trigger? (If this is OFF, FSM is stuck)
+            if (inference_done) debug_latch[3] <= 1;
+            
+            // -------------------------------------------------------------
+            // DATA INTEGRITY (Latched)
+            // -------------------------------------------------------------
+            // [4] NON-ZERO PIXEL read? (If OFF, image RAM is empty/black)
+            if (img_rd_data != 0) debug_latch[4] <= 1;
+            
+            // [5] NON-ZERO WEIGHT read? (If OFF, weight RAM is empty)
+            if (conv_w_rd_data != 0) debug_latch[5] <= 1;
+            
+            // [6] NON-ZERO BIAS read?
+            if (conv_b_rd_data != 0) debug_latch[6] <= 1;
+            
+            // -------------------------------------------------------------
+            // PROCESSING ACTIVITY (Latched)
+            // -------------------------------------------------------------
+            // [7] L1 Conv Write Enable (Did we write to Buffer A?)
+            if (buf_a_wr_en) debug_latch[7] <= 1;
+            
+            // [8] NON-ZERO L1 Output (Did L1 produce valid data?)
+            if (buf_a_wr_en && buf_a_wr_data != 0) debug_latch[8] <= 1;
+            
+            // [9] Pooling/L2 Write Enable (Did we write to Buffer B?)
+            if (buf_b_wr_en) debug_latch[9] <= 1;
+            
+            // [10] Scores Write Enable (Did we try to save results?)
+            if (scores_ram_wr_en) debug_latch[10] <= 1;
+            
+            // -------------------------------------------------------------
+            // HEARTBEAT
+            // -------------------------------------------------------------
+            debug_latch[15] <= heartbeat_cnt[26];
         end
     end
     
-    assign led = led_reg;
-
-    // =================================================================
-    // SIMULATION DEBUG SPIES (Add to bottom of top.v)
-    // =================================================================
-    // synthesis translate_off
-
-    // 1. Monitor the connection wire
-    always @(posedge image_rx_ready) begin
-        $display("[%t] [WIRE SPY] image_rx_ready went HIGH! Data: %h", $time, image_rx_data);
-    end
-
-    // 2. Monitor the Loader's internal acceptance
-    always @(posedge u_image_loader.rx_ready) begin
-        $display("[%t] [LOADER SPY] Input rx_ready went HIGH. Internal WeightsLoaded: %b", $time, u_image_loader.weights_loaded);
-    end
-
-    // 3. Monitor the Router's internal send
-    always @(posedge u_uart_router.image_rx_ready) begin
-        $display("[%t] [ROUTER SPY] Output image_rx_ready went HIGH.", $time);
-    end
-
-    // synthesis translate_on
+    // Combine debug latch with RX byte count on upper LEDs
+    assign led[7:0] = debug_latch[7:0];
+    assign led[15:8] = image_loader_debug_rx_count[7:0];
 
 endmodule
