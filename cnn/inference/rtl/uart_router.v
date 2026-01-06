@@ -1,14 +1,3 @@
-/*
-================================================================================
-UART Router - Binary Safe Version for CNN
-================================================================================
-Fix: Implementation of Byte Counting to ensure Binary Safety.
-We strictly ignore "End Markers" until the expected number of data bytes 
-has been received. This prevents random weights/pixels that resemble 
-protocol markers from terminating the transfer early.
-================================================================================
-*/
-
 module uart_router (
     input wire clk,
     input wire rst,
@@ -21,14 +10,21 @@ module uart_router (
     output reg [7:0] cmd_rx_data,
     output reg cmd_rx_ready
 );
-    // Protocol Constants
+    // Protocol Markers
     localparam WEIGHT_START1 = 8'hAA, WEIGHT_START2 = 8'h55;
     localparam WEIGHT_END1   = 8'h55, WEIGHT_END2   = 8'hAA;
-    localparam IMAGE_START1  = 8'hBB, IMAGE_START2  = 8'h66;
-    localparam IMAGE_END1    = 8'h66, IMAGE_END2    = 8'hBB;
+    localparam IMAGE_START1  = 8'hBB, IMAGE_START2 = 8'h66;
+    localparam IMAGE_END1    = 8'h66, IMAGE_END2   = 8'hBB;
     
-    // Total Weights = 36 (Conv W) + 16 (Conv B) + 27040 (Dense W) + 40 (Dense B) = 27132
-    localparam WEIGHT_SIZE = 27132;
+    // NEW WEIGHT CALCULATION:
+    // L1 Weights: 16 * 1 * 9 = 144
+    // L1 Biases: 16 * 4 = 64
+    // L2 Weights: 32 * 16 * 9 = 4608
+    // L2 Biases: 32 * 4 = 128
+    // Dense Weights: (32*5*5) * 10 = 8000
+    // Dense Biases: 10 * 4 = 40
+    // TOTAL = 12,984 bytes
+    localparam WEIGHT_SIZE = 12984; 
     localparam IMAGE_SIZE = 784;
 
     wire [7:0] rx_data;
@@ -39,7 +35,7 @@ module uart_router (
     reg [15:0] byte_count;
     reg [7:0] prev_byte;
 
-    localparam IDLE = 0, WAIT_W2 = 1, RECV_W = 2, WAIT_I2 = 3, RECV_I = 4;
+    localparam IDLE = 0, WAIT_W2 = 1, RECV_W = 2, DONE_W = 3, WAIT_I2 = 4, RECV_I = 5, DONE_I = 6;
 
     always @(posedge clk) begin
         if (rst) begin
@@ -67,44 +63,64 @@ module uart_router (
                     if (rx_data == WEIGHT_START2) begin
                         state <= RECV_W;
                         byte_count <= 0;
-                        // Forward marker to reset loader
                         weight_rx_data <= rx_data;
                         weight_rx_ready <= 1;
                     end else state <= IDLE;
                 end
 
                 RECV_W: if (rx_ready) begin
-                    weight_rx_data <= rx_data;
-                    weight_rx_ready <= 1;
                     byte_count <= byte_count + 1;
                     prev_byte <= rx_data;
                     
-                    // BINARY SAFETY: Only check end marker if we have enough bytes
-                    if (byte_count >= WEIGHT_SIZE && prev_byte == WEIGHT_END1 && rx_data == WEIGHT_END2)
-                        state <= IDLE;
+                    // Only forward bytes that are part of the payload
+                    if (byte_count < WEIGHT_SIZE) begin
+                        weight_rx_data <= rx_data;
+                        weight_rx_ready <= 1;
+                    end
+                    
+                    // Check for end markers only after payload complete
+                    if (byte_count >= WEIGHT_SIZE && prev_byte == WEIGHT_END1 && rx_data == WEIGHT_END2) begin
+                        state <= DONE_W;
+                    end
+                end
+                
+                DONE_W: begin
+                    // Stay here until reset or explicit command
+                    // This prevents stray bytes from triggering image loading
+                    state <= IDLE;
                 end
 
                 WAIT_I2: if (rx_ready) begin
                     if (rx_data == IMAGE_START2) begin
                         state <= RECV_I;
                         byte_count <= 0;
-                        image_rx_data <= rx_data;
-                        image_rx_ready <= 1;
+                        // CHANGE: Do NOT pass the 0x66 marker to the loader
+                        // image_rx_data <= rx_data;  <-- DELETE THIS
+                        // image_rx_ready <= 1;       <-- DELETE THIS
                     end else state <= IDLE;
                 end
 
                 RECV_I: if (rx_ready) begin
-                    image_rx_data <= rx_data;
-                    image_rx_ready <= 1;
                     byte_count <= byte_count + 1;
                     prev_byte <= rx_data;
-
-                    if (byte_count >= IMAGE_SIZE && prev_byte == IMAGE_END1 && rx_data == IMAGE_END2)
-                        state <= IDLE;
+                    
+                    // Only forward bytes that are part of the payload
+                    // Allow payload (IMAGE_SIZE) + 2 marker bytes to pass
+                    if (byte_count < IMAGE_SIZE + 2) begin
+                        image_rx_data <= rx_data;
+                        image_rx_ready <= 1;
+                    end
+                    
+                    // Check for end markers only after payload complete
+                    if (byte_count >= IMAGE_SIZE && prev_byte == IMAGE_END1 && rx_data == IMAGE_END2) begin
+                        state <= DONE_I;
+                    end
+                end
+                
+                DONE_I: begin
+                    state <= IDLE;
                 end
             endcase
         end
     end
 endmodule
-
-

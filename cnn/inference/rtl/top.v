@@ -1,18 +1,3 @@
-/*
-================================================================================
-Top Module - Simple CNN Inference System
-================================================================================
-This module instantiates all sub-modules and connects them together.
-Uses a SINGLE uart_rx instance (in uart_router) for the entire system.
-
-Model Architecture:
-  - Input: 784 pixels (28x28 image)
-  - Conv Layer: 4 filters, 3x3 kernel, stride 1, no padding -> 26x26x4 feature map
-  - ReLU activation
-  - Dense Layer: 2704 inputs -> 10 outputs
-================================================================================
-*/
-
 module top (
     input wire clk,               // 100 MHz System Clock
     input wire rst,               // Reset Button (active high)
@@ -21,15 +6,15 @@ module top (
     output wire [15:0] led,       // Status LEDs
     output wire [6:0] seg,        // 7-segment display segments
     output wire [3:0] an,         // 7-segment display anodes
-    input wire [15:0] sw,         // Switches (for control/debug)
-    input wire btnU,              // Up button (optional)
-    input wire btnD,              // Down button (optional)
-    input wire btnL,              // Left button (optional)
-    input wire btnR               // Right button (optional)
+    input wire [15:0] sw,         // Switches (optional)
+    input wire btnU,              // Buttons (optional)
+    input wire btnD,
+    input wire btnL,
+    input wire btnR
 );
 
     // =========================================================================
-    // Internal signals
+    // Internal Signals
     // =========================================================================
     
     // UART Router signals
@@ -40,96 +25,98 @@ module top (
     wire [7:0] cmd_rx_data;
     wire cmd_rx_ready;
     
-    // Weight loader write signals
-    wire [5:0] conv_w_wr_addr;
-    wire [7:0] conv_w_wr_data;
-    wire conv_w_wr_en;
-    wire [3:0] conv_b_wr_addr;
-    wire [31:0] conv_b_wr_data;
-    wire conv_b_wr_en;
-    wire [14:0] dense_w_wr_addr;
-    wire [7:0] dense_w_wr_data;
-    wire dense_w_wr_en;
-    wire [3:0] dense_b_wr_addr;
-    wire [31:0] dense_b_wr_data;
-    wire dense_b_wr_en;
-    wire weights_loaded;
+    // Weight Loader Signals
+    wire [12:0] conv_w_wr_addr;
+    wire [7:0]  conv_w_wr_data;
+    wire        conv_w_wr_en;
     
-    // Inference read signals for conv weights/biases
-    wire [5:0] conv_w_rd_addr;
-    wire [7:0] conv_w_rd_data;
-    wire [3:0] conv_b_rd_addr;
+    wire [5:0]  conv_b_wr_addr;
+    wire [31:0] conv_b_wr_data;
+    wire        conv_b_wr_en;
+    
+    wire [12:0] dense_w_wr_addr;
+    wire [7:0]  dense_w_wr_data;
+    wire        dense_w_wr_en;
+    
+    wire [3:0]  dense_b_wr_addr;
+    wire [31:0] dense_b_wr_data;
+    wire        dense_b_wr_en;
+    
+    wire weights_loaded;
+    wire [15:0] loader_led; // DEBUG LEDs
+    
+    // Inference Signals (Read Side)
+    wire [12:0] conv_w_rd_addr;
+    wire [7:0]  conv_w_rd_data;
+    
+    wire [5:0]  conv_b_rd_addr;
     wire [31:0] conv_b_rd_data;
     
-    // Inference read signals for dense weights/biases
-    wire [14:0] dense_w_rd_addr;
-    wire [7:0] dense_w_rd_data;
-    wire [3:0] dense_b_rd_addr;
-    wire [31:0] dense_b_rd_data;
+    wire [12:0] dense_w_rd_addr;
+    wire [7:0]  dense_w_rd_data;
     
-    // Image RAM signals
+    wire [3:0]  dense_b_rd_addr;
+    wire [31:0] dense_b_rd_data;
+
+    // Intermediate Buffers
+    wire [13:0] buf_a_addr;
+    wire [7:0]  buf_a_wr_data;
+    wire        buf_a_wr_en;
+    wire [7:0]  buf_a_rd_data;
+
+    wire [11:0] buf_b_addr;
+    wire [7:0]  buf_b_wr_data;
+    wire        buf_b_wr_en;
+    wire [7:0]  buf_b_rd_data;
+    
+    // Image RAM Signals
     wire [9:0]  img_wr_addr;
     wire [7:0]  img_wr_data;
     wire        img_wr_en;
     wire        img_loaded;
+    
     wire [9:0]  img_rd_addr;
     wire [7:0]  img_rd_data;
     
-    // Inference signals
-    wire [3:0]  predicted_digit;
-    wire        inference_done;
+    // Control & Results
     wire        start_inference_pulse;
+    wire        inference_done;
+    wire [3:0]  predicted_digit;
     
-    // Feature Map RAM signals (from ram_cnn)
-    wire [11:0] fm_addr;
-    wire [7:0]  fm_wr_data;
-    wire        fm_wr_en;
-    wire [7:0]  fm_rd_data;
+    // Class Scores
+    wire signed [31:0] class_score_0, class_score_1, class_score_2, class_score_3, class_score_4;
+    wire signed [31:0] class_score_5, class_score_6, class_score_7, class_score_8, class_score_9;
+
+    // Edge Detectors
+    reg img_loaded_prev;
+    reg inference_done_prev;
     
-    // Class scores from inference module
-    wire signed [31:0] class_score_0;
-    wire signed [31:0] class_score_1;
-    wire signed [31:0] class_score_2;
-    wire signed [31:0] class_score_3;
-    wire signed [31:0] class_score_4;
-    wire signed [31:0] class_score_5;
-    wire signed [31:0] class_score_6;
-    wire signed [31:0] class_score_7;
-    wire signed [31:0] class_score_8;
-    wire signed [31:0] class_score_9;
-    
-    // Predicted digit RAM signals
+    // RAM Write Enables
     wire digit_ram_wr_en;
-    wire [7:0] digit_ram_rd_data;
-    
-    // Scores RAM signals
     wire scores_ram_wr_en;
+    
+    // UART TX & Readers
+    wire [7:0] digit_ram_rd_data;
     wire [5:0] scores_ram_rd_addr;
     wire [7:0] scores_ram_rd_data;
     
-    // UART TX signals - shared between digit and scores readers
-    wire [7:0] digit_tx_data;
-    wire digit_tx_send;
-    wire [7:0] scores_tx_data;
-    wire scores_tx_send;
     wire [7:0] tx_data;
-    wire tx_send;
-    wire tx_busy;
-    wire tx_out;
+    wire       tx_send;
+    wire       tx_busy;
+    wire       tx_out;
     
-    // LED and display registers
+    wire [7:0] digit_tx_data;
+    wire       digit_tx_send;
+    wire [7:0] scores_tx_data;
+    wire       scores_tx_send;
+    
+    // Display
+    wire [3:0] digit_left;
     reg [15:0] led_reg;
-    
-    // Display digit signals
-    wire [3:0] digit_left;   // From memory (persistent)
-    wire [3:0] digit_right;  // Current predicted_digit
-    
-    // Edge detector for inference_done (to create write pulse)
-    reg inference_done_prev;
-    reg img_loaded_prev;
-    
+    reg [26:0] heartbeat_cnt;
+
     // =========================================================================
-    // UART Router - SINGLE uart_rx for the entire system
+    // 1. UART ROUTER
     // =========================================================================
     uart_router u_uart_router (
         .clk(clk),
@@ -143,9 +130,9 @@ module top (
         .cmd_rx_data(cmd_rx_data),
         .cmd_rx_ready(cmd_rx_ready)
     );
-    
+
     // =========================================================================
-    // Weight Loader (receives routed data from uart_router)
+    // 2. WEIGHT LOADER
     // =========================================================================
     weight_loader u_weight_loader (
         .clk(clk),
@@ -153,24 +140,31 @@ module top (
         .rx_data(weight_rx_data),
         .rx_ready(weight_rx_ready),
         .transfer_done(weights_loaded),
+        
+        // Conv (L1 + L2 combined)
         .conv_w_addr(conv_w_wr_addr),
         .conv_w_data(conv_w_wr_data),
         .conv_w_en(conv_w_wr_en),
         .conv_b_addr(conv_b_wr_addr),
         .conv_b_data(conv_b_wr_data),
         .conv_b_en(conv_b_wr_en),
+        
+        // Dense
         .dense_w_addr(dense_w_wr_addr),
         .dense_w_data(dense_w_wr_data),
         .dense_w_en(dense_w_wr_en),
         .dense_b_addr(dense_b_wr_addr),
         .dense_b_data(dense_b_wr_data),
-        .dense_b_en(dense_b_wr_en)
+        .dense_b_en(dense_b_wr_en),
+        
+        // Debug
+        .led(loader_led)
     );
-    
+
     // =========================================================================
-    // Conv Weights RAM
+    // 3. CONV MEMORIES (Weights & Biases)
     // =========================================================================
-    conv_weights_ram u_conv_weights_ram (
+    conv_weights_ram u_conv_w_ram (
         .clk(clk),
         .wr_addr(conv_w_wr_addr),
         .wr_data(conv_w_wr_data),
@@ -178,11 +172,8 @@ module top (
         .rd_addr(conv_w_rd_addr),
         .rd_data(conv_w_rd_data)
     );
-    
-    // =========================================================================
-    // Conv Biases RAM
-    // =========================================================================
-    conv_biases_ram u_conv_biases_ram (
+
+    conv_biases_ram u_conv_b_ram (
         .clk(clk),
         .wr_addr(conv_b_wr_addr),
         .wr_data(conv_b_wr_data),
@@ -190,11 +181,11 @@ module top (
         .rd_addr(conv_b_rd_addr),
         .rd_data(conv_b_rd_data)
     );
-    
+
     // =========================================================================
-    // Dense Biases RAM
+    // 4. DENSE BIASES
     // =========================================================================
-    dense_biases_ram u_dense_biases_ram (
+    dense_biases_ram u_dense_b_ram (
         .clk(clk),
         .wr_addr(dense_b_wr_addr),
         .wr_data(dense_b_wr_data),
@@ -202,9 +193,38 @@ module top (
         .rd_addr(dense_b_rd_addr),
         .rd_data(dense_b_rd_data)
     );
-    
+
     // =========================================================================
-    // Image Loader (receives routed data from uart_router)
+    // 5. CNN RAM (Buffers A/B + Dense Weights)
+    // =========================================================================
+    wire [12:0] ram_dense_addr = dense_w_wr_en ? dense_w_wr_addr : dense_w_rd_addr;
+    wire [7:0]  ram_dense_w_d  = dense_w_wr_data; 
+    wire        ram_dense_we   = dense_w_wr_en;
+
+    ram_cnn u_ram_cnn (
+        .clk(clk),
+        
+        // Buffer A
+        .buf_a_addr(buf_a_addr),
+        .buf_a_wr_data(buf_a_wr_data),
+        .buf_a_wr_en(buf_a_wr_en),
+        .buf_a_rd_data(buf_a_rd_data),
+        
+        // Buffer B
+        .buf_b_addr(buf_b_addr),
+        .buf_b_wr_data(buf_b_wr_data),
+        .buf_b_wr_en(buf_b_wr_en),
+        .buf_b_rd_data(buf_b_rd_data),
+        
+        // Dense Weights
+        .dw_addr(ram_dense_addr),
+        .dw_wr_data(ram_dense_w_d),
+        .dw_wr_en(ram_dense_we),
+        .dw_rd_data(dense_w_rd_data)
+    );
+
+    // =========================================================================
+    // 6. IMAGE LOADING & STORAGE
     // =========================================================================
     image_loader u_image_loader (
         .clk(clk),
@@ -217,10 +237,7 @@ module top (
         .wr_en(img_wr_en),
         .image_loaded(img_loaded)
     );
-    
-    // =========================================================================
-    // Image RAM (784 bytes)
-    // =========================================================================
+
     image_ram u_image_ram (
         .clk(clk),
         .wr_addr(img_wr_addr),
@@ -229,211 +246,174 @@ module top (
         .rd_addr(img_rd_addr),
         .rd_data(img_rd_data)
     );
-    
+
     // =========================================================================
-    // CNN RAM (Feature Map + Dense Weights)
+    // 7. INFERENCE ENGINE
     // =========================================================================
-    // For dense weights: write during weight loading, read during inference
-    wire [14:0] dense_w_ram_addr = dense_w_wr_en ? dense_w_wr_addr : dense_w_rd_addr;
-    
-    ram_cnn u_ram_cnn (
-        .clk(clk),
-        .fm_addr(fm_addr),
-        .fm_d(fm_wr_data),
-        .fm_we(fm_wr_en),
-        .fm_q(fm_rd_data),
-        .dw_addr(dense_w_ram_addr),
-        .dw_d(dense_w_wr_data),
-        .dw_we(dense_w_wr_en),
-        .dw_q(dense_w_rd_data)
-    );
-    
-    // =========================================================================
-    // Inference Module (CNN)
-    // =========================================================================
+    always @(posedge clk) begin
+        if (rst) img_loaded_prev <= 0;
+        else img_loaded_prev <= img_loaded;
+    end
+    assign start_inference_pulse = img_loaded && !img_loaded_prev;
+
     inference u_inference (
         .clk(clk),
         .rst(rst),
         .start(start_inference_pulse),
         .done(inference_done),
         .predicted_digit(predicted_digit),
+        
+        // Image Read
         .img_addr(img_rd_addr),
         .img_data(img_rd_data),
+        
+        // Conv Read
         .conv_w_addr(conv_w_rd_addr),
         .conv_w_data(conv_w_rd_data),
         .conv_b_addr(conv_b_rd_addr),
         .conv_b_data(conv_b_rd_data),
+        
+        // Dense Read
         .dense_w_addr(dense_w_rd_addr),
         .dense_w_data(dense_w_rd_data),
         .dense_b_addr(dense_b_rd_addr),
         .dense_b_data(dense_b_rd_data),
-        .fm_addr(fm_addr),
-        .fm_wr_data(fm_wr_data),
-        .fm_wr_en(fm_wr_en),
-        .fm_rd_data(fm_rd_data),
-        .class_score_0(class_score_0),
-        .class_score_1(class_score_1),
-        .class_score_2(class_score_2),
-        .class_score_3(class_score_3),
-        .class_score_4(class_score_4),
-        .class_score_5(class_score_5),
-        .class_score_6(class_score_6),
-        .class_score_7(class_score_7),
-        .class_score_8(class_score_8),
-        .class_score_9(class_score_9)
+        
+        // Buffers
+        .buf_a_addr(buf_a_addr),
+        .buf_a_wr_data(buf_a_wr_data),
+        .buf_a_wr_en(buf_a_wr_en),
+        .buf_a_rd_data(buf_a_rd_data),
+        
+        .buf_b_addr(buf_b_addr),
+        .buf_b_wr_data(buf_b_wr_data),
+        .buf_b_wr_en(buf_b_wr_en),
+        .buf_b_rd_data(buf_b_rd_data),
+        
+        // Scores
+        .class_score_0(class_score_0), .class_score_1(class_score_1),
+        .class_score_2(class_score_2), .class_score_3(class_score_3),
+        .class_score_4(class_score_4), .class_score_5(class_score_5),
+        .class_score_6(class_score_6), .class_score_7(class_score_7),
+        .class_score_8(class_score_8), .class_score_9(class_score_9)
     );
-    
+
     // =========================================================================
-    // Auto-start inference when image is loaded
-    // =========================================================================
-    always @(posedge clk) begin
-        if (rst) begin
-            img_loaded_prev <= 0;
-        end else begin
-            img_loaded_prev <= img_loaded;
-        end
-    end
-    
-    assign start_inference_pulse = img_loaded && !img_loaded_prev;
-    
-    // =========================================================================
-    // Edge detector for inference_done (to write predicted digit to RAM)
+    // 8. RESULT STORAGE & READBACK
     // =========================================================================
     always @(posedge clk) begin
-        if (rst) begin
-            inference_done_prev <= 0;
-        end else begin
-            inference_done_prev <= inference_done;
-        end
+        if (rst) inference_done_prev <= 0;
+        else inference_done_prev <= inference_done;
     end
-    
-    assign digit_ram_wr_en = inference_done && !inference_done_prev;
+    assign digit_ram_wr_en  = inference_done && !inference_done_prev;
     assign scores_ram_wr_en = inference_done && !inference_done_prev;
-    
-    // =========================================================================
-    // Predicted Digit RAM
-    // =========================================================================
-    predicted_digit_ram u_predicted_digit_ram (
+
+    predicted_digit_ram u_pred_ram (
         .clk(clk),
         .wr_en(digit_ram_wr_en),
         .wr_data(predicted_digit),
-        .rd_addr(1'b0),  // Always read from address 0
+        .rd_addr(1'b0),
         .rd_data(digit_ram_rd_data)
     );
-    
-    // =========================================================================
-    // Scores RAM
-    // =========================================================================
+
     scores_ram u_scores_ram (
         .clk(clk),
         .wr_en(scores_ram_wr_en),
-        .score_0(class_score_0),
-        .score_1(class_score_1),
-        .score_2(class_score_2),
-        .score_3(class_score_3),
-        .score_4(class_score_4),
-        .score_5(class_score_5),
-        .score_6(class_score_6),
-        .score_7(class_score_7),
-        .score_8(class_score_8),
-        .score_9(class_score_9),
+        .score_0(class_score_0), .score_1(class_score_1),
+        .score_2(class_score_2), .score_3(class_score_3),
+        .score_4(class_score_4), .score_5(class_score_5),
+        .score_6(class_score_6), .score_7(class_score_7),
+        .score_8(class_score_8), .score_9(class_score_9),
         .rd_addr(scores_ram_rd_addr),
         .rd_data(scores_ram_rd_data)
     );
-    
+
     // =========================================================================
-    // UART TX for responses
+    // 9. UART TX & DISPLAY
     // =========================================================================
-    uart_tx #(
-        .CLK_FREQ(100_000_000),
-        .BAUD_RATE(115200)
-    ) u_uart_tx (
-        .clk(clk),
-        .rst(rst),
-        .data(tx_data),
-        .send(tx_send),
-        .tx(tx_out),
-        .busy(tx_busy)
+    uart_tx #(.CLK_FREQ(100_000_000), .BAUD_RATE(115200)) u_uart_tx (
+        .clk(clk), .rst(rst),
+        .data(tx_data), .send(tx_send), .tx(tx_out), .busy(tx_busy)
     );
-    
-    // =========================================================================
-    // Digit Reader (0xCC protocol) - uses routed command interface
-    // =========================================================================
+    assign tx = tx_out;
+
     digit_reader u_digit_reader (
-        .clk(clk),
-        .rst(rst),
-        .rx_data(cmd_rx_data),
-        .rx_ready(cmd_rx_ready),
+        .clk(clk), .rst(rst),
+        .rx_data(cmd_rx_data), .rx_ready(cmd_rx_ready),
         .digit_data(digit_ram_rd_data),
-        .tx_data(digit_tx_data),
-        .tx_send(digit_tx_send),
-        .tx_busy(tx_busy)
+        .tx_data(digit_tx_data), .tx_send(digit_tx_send), .tx_busy(tx_busy)
     );
-    
-    // =========================================================================
-    // Scores Reader (0xCD protocol) - uses routed command interface
-    // =========================================================================
+
     scores_reader u_scores_reader (
-        .clk(clk),
-        .rst(rst),
-        .rx_data(cmd_rx_data),
-        .rx_ready(cmd_rx_ready),
-        .scores_data(scores_ram_rd_data),
-        .scores_addr(scores_ram_rd_addr),
-        .tx_data(scores_tx_data),
-        .tx_send(scores_tx_send),
-        .tx_busy(tx_busy)
+        .clk(clk), .rst(rst),
+        .rx_data(cmd_rx_data), .rx_ready(cmd_rx_ready),
+        .scores_data(scores_ram_rd_data), .scores_addr(scores_ram_rd_addr),
+        .tx_data(scores_tx_data), .tx_send(scores_tx_send), .tx_busy(tx_busy)
     );
-    
-    // =========================================================================
-    // TX Arbiter - Multiplex between digit_reader and scores_reader
-    // =========================================================================
+
     assign tx_data = digit_tx_send ? digit_tx_data : scores_tx_data;
     assign tx_send = digit_tx_send | scores_tx_send;
-    
-    // =========================================================================
-    // Digit Display Reader - Reads from predicted_digit_ram
-    // =========================================================================
-    digit_display_reader u_digit_display_reader (
-        .clk(clk),
-        .rst(rst),
+
+    digit_display_reader u_disp_reader (
+        .clk(clk), .rst(rst),
         .digit_ram_data(digit_ram_rd_data),
         .display_digit(digit_left)
     );
-    
+
+    seven_segment_display u_display (
+        .clk(clk), .rst(rst),
+        .digit_left(digit_left),
+        .digit_right(predicted_digit),
+        .seg(seg), .an(an)
+    );
+
     // =========================================================================
-    // LED Control
+    // 10. LED LOGIC
     // =========================================================================
+    always @(posedge clk) heartbeat_cnt <= heartbeat_cnt + 1;
+
     always @(posedge clk) begin
         if (rst) begin
             led_reg <= 0;
         end else begin
-            led_reg[3:0] <= predicted_digit;
-            led_reg[4] <= inference_done;
-            led_reg[5] <= img_loaded;
-            led_reg[6] <= weights_loaded;
+            if (!weights_loaded) begin
+                // SHOW LOADING PROGRESS
+                led_reg <= loader_led;
+            end else begin
+                // SHOW INFERENCE STATUS
+                led_reg[3:0] <= predicted_digit;
+                led_reg[4]   <= !inference_done;
+                led_reg[5]   <= inference_done;
+                led_reg[6]   <= img_loaded;
+                led_reg[7]   <= weights_loaded;
+                led_reg[15]  <= heartbeat_cnt[26]; 
+                led_reg[14:8]<= 0;
+            end
         end
     end
     
     assign led = led_reg;
-    
-    // =========================================================================
-    // 7-Segment Display
-    // =========================================================================
-    assign digit_right = predicted_digit;
-    
-    seven_segment_display u_display (
-        .clk(clk),
-        .rst(rst),
-        .digit_left(digit_left),
-        .digit_right(digit_right),
-        .seg(seg),
-        .an(an)
-    );
-    
-    // Connect TX output
-    assign tx = tx_out;
+
+    // =================================================================
+    // SIMULATION DEBUG SPIES (Add to bottom of top.v)
+    // =================================================================
+    // synthesis translate_off
+
+    // 1. Monitor the connection wire
+    always @(posedge image_rx_ready) begin
+        $display("[%t] [WIRE SPY] image_rx_ready went HIGH! Data: %h", $time, image_rx_data);
+    end
+
+    // 2. Monitor the Loader's internal acceptance
+    always @(posedge u_image_loader.rx_ready) begin
+        $display("[%t] [LOADER SPY] Input rx_ready went HIGH. Internal WeightsLoaded: %b", $time, u_image_loader.weights_loaded);
+    end
+
+    // 3. Monitor the Router's internal send
+    always @(posedge u_uart_router.image_rx_ready) begin
+        $display("[%t] [ROUTER SPY] Output image_rx_ready went HIGH.", $time);
+    end
+
+    // synthesis translate_on
 
 endmodule
-
-

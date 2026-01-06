@@ -1,40 +1,39 @@
-/*
-================================================================================
-CNN RAM Modules
-================================================================================
-Storage for:
-  - Feature Map: 2704 bytes (26*26*4)
-  - Dense Weights: 27040 bytes
-================================================================================
-*/
-
 module ram_cnn (
     input clk,
-    // Feature Map RAM (2704 bytes)
-    input [11:0] fm_addr,
-    input [7:0] fm_d,
-    input fm_we,
-    output reg [7:0] fm_q,
-    
-    // Dense Weights RAM (27040 bytes)
-    input [14:0] dw_addr,
-    input [7:0] dw_d,
-    input dw_we,
-    output reg [7:0] dw_q
+    // Buffer A: Holds L1 Output (16*26*26 = 10,816 bytes)
+    input [13:0] buf_a_addr,
+    input [7:0] buf_a_wr_data,
+    input buf_a_wr_en,
+    output reg [7:0] buf_a_rd_data,
+
+    // Buffer B: Holds L1 Pool Out (16*13*13 = 2704) OR L2 Pool Out (32*5*5 = 800)
+    input [11:0] buf_b_addr,
+    input [7:0] buf_b_wr_data,
+    input buf_b_wr_en,
+    output reg [7:0] buf_b_rd_data,
+
+    // Dense Weights: 800 * 10 = 8000 bytes
+    input [12:0] dw_addr,
+    input [7:0] dw_wr_data,
+    input dw_wr_en,
+    output reg [7:0] dw_rd_data
 );
-    // Inferred BRAMs
-    (* ram_style = "block" *) reg [7:0] fm_ram [0:2703];
-    (* ram_style = "block" *) reg [7:0] dw_ram [0:27039];
+    (* ram_style = "block" *) reg [7:0] buffer_a [0:10815];
+    (* ram_style = "block" *) reg [7:0] buffer_b [0:2703];
+    (* ram_style = "block" *) reg [7:0] dense_ram [0:7999];
 
     always @(posedge clk) begin
-        if (fm_we) fm_ram[fm_addr] <= fm_d;
-        fm_q <= fm_ram[fm_addr];
+        if (buf_a_wr_en) buffer_a[buf_a_addr] <= buf_a_wr_data;
+        buf_a_rd_data <= buffer_a[buf_a_addr];
     end
 
     always @(posedge clk) begin
-        if (dw_we) dw_ram[dw_addr] <= dw_d;
-        dw_q <= dw_ram[dw_addr];
+        if (buf_b_wr_en) buffer_b[buf_b_addr] <= buf_b_wr_data;
+        buf_b_rd_data <= buffer_b[buf_b_addr];
+    end
+
+    always @(posedge clk) begin
+        if (dw_wr_en) dense_ram[dw_addr] <= dw_wr_data;
+        dw_rd_data <= dense_ram[dw_addr];
     end
 endmodule
-
-

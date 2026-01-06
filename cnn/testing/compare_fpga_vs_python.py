@@ -4,13 +4,13 @@ import os
 import struct
 import numpy as np
 import argparse
-import torch
+import sys
 from torchvision import datasets, transforms
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
-DEFAULT_PORT = "COM7"
+DEFAULT_PORT = "COM7"  # Update this to your specific COM port
 DEFAULT_BAUD = 115200
 BIN_DIR = "../outputs/bin"
 NPY_DIR = "../outputs/npy"
@@ -21,69 +21,116 @@ IMG_START = bytes([0xBB, 0x66])
 IMG_END   = bytes([0x66, 0xBB])
 CMD_READ_SCORES = bytes([0xCD])
 
-# ==========================================
-# BIT-EXACT PYTHON SIMULATION
-# ==========================================
-def simulate_cnn_inference(image, conv_w, conv_b, dense_w, dense_b):
-    """
-    Simulates the FPGA CNN pipeline exactly using integer arithmetic.
-    """
-    # 1. Reshape Input Image (784 -> 28x28)
-    img_2d = image.reshape(28, 28).astype(np.int32)
-    
-    # 2. Reshape Conv Weights (4 filters, 1ch, 3x3) -> (4, 3, 3)
-    conv_w_reshaped = conv_w.reshape(4, 3, 3).astype(np.int32)
-    
-    # 3. Layer 1: Convolution
-    # Buffer for feature maps: 4 filters * 26 * 26
-    feature_maps = np.zeros((4, 26, 26), dtype=np.int32)
+# Shift parameter (Must match Training & FPGA)
+SHIFT_CONV = 8
 
-    for f in range(4): # Loop over 4 filters
-        bias_val = conv_b[f]
-        for r in range(26):
-            for c in range(26):
+# ==========================================
+# 1. HELPER FUNCTIONS
+# ==========================================
+def max_pool_2x2(input_vol):
+    """
+    Simulates 2x2 Max Pooling with Stride 2.
+    Input: (Channels, Height, Width)
+    Output: (Channels, Height/2, Width/2)
+    """
+    c, h, w = input_vol.shape
+    new_h, new_w = h // 2, w // 2
+    output_vol = np.zeros((c, new_h, new_w), dtype=np.int32)
+    
+    for ch in range(c):
+        for r in range(new_h):
+            for col in range(new_w):
+                # Extract 2x2 window
+                window = input_vol[ch, r*2 : r*2+2, col*2 : col*2+2]
+                output_vol[ch, r, col] = np.max(window)
+                
+    return output_vol
+
+def convolve_layer(input_vol, weights, biases, shift):
+    """
+    Standard Multi-Channel Convolution.
+    Input: (In_Channels, H, W)
+    Weights: (Out_Channels, In_Channels, 3, 3)
+    Output: (Out_Channels, H-2, W-2)
+    """
+    in_ch, h, w = input_vol.shape
+    out_ch, _, k_h, k_w = weights.shape
+    out_h, out_w = h - 2, w - 2
+    
+    output_vol = np.zeros((out_ch, out_h, out_w), dtype=np.int32)
+
+    for f in range(out_ch):
+        bias_val = biases[f]
+        for r in range(out_h):
+            for c in range(out_w):
                 acc = 0
-                # 3x3 Convolution
-                for kr in range(3):
-                    for kc in range(3):
-                        pixel = img_2d[r+kr, c+kc]
-                        weight = conv_w_reshaped[f, kr, kc]
-                        acc += pixel * weight
+                # Sum over all input channels
+                for ch in range(in_ch):
+                    window = input_vol[ch, r:r+3, c:c+3]
+                    w_kernel = weights[f, ch]
+                    acc += np.sum(window * w_kernel)
                 
                 # Add Bias
                 acc += bias_val
                 
                 # FPGA Pipeline Steps:
-                acc = acc >> 7          # 1. Arithmetic Right Shift by 7
-                if acc < 0: acc = 0     # 2. ReLU
-                if acc > 127: acc = 127 # 3. Saturation (clamp to 8-bit)
+                acc = acc >> shift             # 1. Arithmetic Right Shift
+                if acc < 0: acc = 0            # 2. ReLU
+                if acc > 127: acc = 127        # 3. Saturation
                 
-                feature_maps[f, r, c] = acc
+                output_vol[f, r, c] = acc
+                
+    return output_vol
 
-    # 4. Layer 2: Dense
-    # Flatten order must match FPGA memory write order:
-    # [Filter0 (all rows), Filter1 (all rows)...]
-    flattened_fm = feature_maps.flatten().astype(np.int32)
+# ==========================================
+# 2. BIT-EXACT SIMULATION (2-LAYER CNN)
+# ==========================================
+def simulate_cnn_inference(image, weights_dict):
+    """
+    Simulates the 2-Layer FPGA CNN pipeline exactly.
+    """
+    # Unpack weights
+    c1_w, c1_b = weights_dict['c1']
+    c2_w, c2_b = weights_dict['c2']
+    dw, db     = weights_dict['dense']
+
+    # 1. Input Image: (1, 28, 28)
+    img_3d = image.reshape(1, 28, 28).astype(np.int32)
     
-    # Reshape Dense Weights (10 classes, 2704 inputs)
-    dense_w_reshaped = dense_w.reshape(10, 2704).astype(np.int32)
+    # 2. Layer 1: Conv -> ReLU -> Pool
+    # Weights: (16 filters, 1 ch, 3, 3)
+    c1_w_reshaped = c1_w.reshape(16, 1, 3, 3).astype(np.int32)
+    
+    # Conv Output: (16, 26, 26)
+    x = convolve_layer(img_3d, c1_w_reshaped, c1_b, SHIFT_CONV)
+    # Pool Output: (16, 13, 13)
+    x = max_pool_2x2(x)
+
+    # 3. Layer 2: Conv -> ReLU -> Pool
+    # Weights: (32 filters, 16 ch, 3, 3)
+    c2_w_reshaped = c2_w.reshape(32, 16, 3, 3).astype(np.int32)
+    
+    # Conv Output: (32, 11, 11)
+    x = convolve_layer(x, c2_w_reshaped, c2_b, SHIFT_CONV)
+    # Pool Output: (32, 5, 5)
+    x = max_pool_2x2(x)
+    
+    # 4. Dense Layer
+    # Flatten: (32, 5, 5) -> 800
+    flattened = x.flatten().astype(np.int32)
+    
+    # Reshape Dense: (10 classes, 800 inputs)
+    dw_reshaped = dw.reshape(10, 800).astype(np.int32)
     
     scores = np.zeros(10, dtype=np.int32)
-    
     for c in range(10):
-        # Accumulate Dot Product
-        # We use int64 here to strictly avoid python overflow, 
-        # though FPGA wraps at 32-bit. 
-        dot_prod = np.dot(flattened_fm, dense_w_reshaped[c])
-        acc = dot_prod + dense_b[c]
-        
-        # Cast back to int32 to simulate FPGA register width
-        scores[c] = np.int32(acc)
+        dot_prod = np.dot(flattened, dw_reshaped[c])
+        scores[c] = dot_prod + db[c]
         
     return scores
 
 # ==========================================
-# UTILITIES
+# 3. UTILITIES
 # ==========================================
 def load_files():
     """Load weights and normalization parameters."""
@@ -91,29 +138,41 @@ def load_files():
     bin_path = os.path.join(script_dir, BIN_DIR)
     npy_path = os.path.join(script_dir, NPY_DIR)
 
-    # Weights
-    cw = np.fromfile(os.path.join(bin_path, "conv_weights.bin"), dtype=np.int8)
-    cb = np.fromfile(os.path.join(bin_path, "conv_biases.bin"), dtype=np.int32)
-    dw = np.fromfile(os.path.join(bin_path, "dense_weights.bin"), dtype=np.int8)
-    db = np.fromfile(os.path.join(bin_path, "dense_biases.bin"), dtype=np.int32)
+    # Load Weights (New Naming Scheme)
+    try:
+        c1_w = np.fromfile(os.path.join(bin_path, "conv1_weights.bin"), dtype=np.int8)
+        c1_b = np.fromfile(os.path.join(bin_path, "conv1_biases.bin"), dtype=np.int32)
+        c2_w = np.fromfile(os.path.join(bin_path, "conv2_weights.bin"), dtype=np.int8)
+        c2_b = np.fromfile(os.path.join(bin_path, "conv2_biases.bin"), dtype=np.int32)
+        dw = np.fromfile(os.path.join(bin_path, "dense_weights.bin"), dtype=np.int8)
+        db = np.fromfile(os.path.join(bin_path, "dense_biases.bin"), dtype=np.int32)
+    except FileNotFoundError as e:
+        print(f"CRITICAL ERROR: Weight file not found! {e}")
+        print("Did you run `train_cnn.py` to generate the new weights?")
+        exit(1)
 
-    # Norm params
+    # Load Norm Params
     mean = np.load(os.path.join(npy_path, "norm_mean.npy"))
     std = np.load(os.path.join(npy_path, "norm_std.npy"))
 
-    return (cw, cb, dw, db), (mean, std)
+    weights = {
+        'c1': (c1_w, c1_b),
+        'c2': (c2_w, c2_b),
+        'dense': (dw, db)
+    }
+    return weights, (mean, std)
 
-def get_mnist_data(num_images=10):
+def get_mnist_data(num_images=100):
     """Load first N images from MNIST test set."""
     transform = transforms.Compose([transforms.ToTensor()])
-    # Adjust root path as needed based on where you run the script from
-    dataset = datasets.MNIST(root="../data", train=False, download=True, transform=transform)
+    # Adjust root path if needed
+    data_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data")
+    dataset = datasets.MNIST(root=data_path, train=False, download=True, transform=transform)
     
     images = []
     labels = []
     for i in range(num_images):
         img, label = dataset[i]
-        # Convert 28x28 tensor to flattened numpy array (0-255)
         img_np = (img.squeeze().numpy() * 255).astype(np.uint8).flatten()
         images.append(img_np)
         labels.append(label)
@@ -121,71 +180,68 @@ def get_mnist_data(num_images=10):
 
 def preprocess(image, mean, std):
     """Normalize and Quantize Image (matches FPGA input format)."""
-    # Normalize to [0,1]
     x = image.astype(np.float32) / 255.0
-    # Standardization
     x = (x - mean) / std
-    # Quantize to int8 (scale 127)
     x = np.clip(np.round(x * 127.0), -128, 127).astype(np.int8)
     return x
 
 # ==========================================
-# MAIN EXECUTION
+# 4. MAIN EXECUTION
 # ==========================================
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", default=DEFAULT_PORT)
-    parser.add_argument("--baud", type=int, default=DEFAULT_BAUD)
+    parser.add_argument("--port", default=DEFAULT_PORT, help="Serial port")
+    parser.add_argument("--baud", type=int, default=DEFAULT_BAUD, help="Baud rate")
+    parser.add_argument("--index", type=int, default=0, help="Start index in MNIST test set")
+    parser.add_argument("--count", type=int, default=100, help="Number of images to test")
     args = parser.parse_args()
 
-    # Determine absolute path for output file
+    # Determine paths
     script_dir = os.path.dirname(os.path.abspath(__file__))
     log_path = os.path.join(script_dir, OUTPUT_FILE)
-    
-    # Ensure directory exists
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    
-    # Open output file for writing
     output_file = open(log_path, "w", encoding='utf-8')
 
-    # 1. Load Data
-    # print("Loading weights and data...")  # Commented out - silent execution
-    (cw, cb, dw, db), (mean, std) = load_files()
-    images, labels = get_mnist_data(10)
+    print("Loading weights and data...")
+    weights, (mean, std) = load_files()
+    
+    # Load enough images to cover the requested range
+    required_images = args.index + args.count
+    images, labels = get_mnist_data(required_images)
 
-    # 2. Open UART
+    # Open UART
     try:
+        print(f"Opening {args.port} at {args.baud}...")
         ser = serial.Serial(args.port, args.baud, timeout=1)
-        time.sleep(2) # Wait for FPGA reset
+        time.sleep(2) # Wait for DTR/RTS
     except Exception as e:
-        # print(f"Error opening {args.port}: {e}")  # Commented out - silent execution
+        print(f"Error opening {args.port}: {e}")
         output_file.close()
         return
 
-    # Write header
-    output_file.write("Python Simulation vs FPGA Hardware Comparison\n")
-    output_file.write("Simple CNN (Conv-ReLU-Dense)\n")
-    output_file.write("=" * 80 + "\n")
-    output_file.write(f"Total Images: 10\n")
-    output_file.write(f"Hardware Shifts: Conv=7, Dense=0\n")
-    output_file.write("=" * 80 + "\n")
-    output_file.write("\n")
+    print(f"Running comparison on {args.port}...")
+    print(f"Testing {args.count} images starting from index {args.index}")
+    
+    output_file.write(f"Python (2-Layer CNN) vs FPGA Comparison\n")
+    output_file.write(f"Start Index: {args.index}, Count: {args.count}\n")
+    output_file.write("=" * 80 + "\n\n")
 
     correct_matches = 0
+    accuracy_correct = 0
 
-    for idx in range(10):
-        img_raw = images[idx]
-        label = labels[idx]
-        
-        # Preprocess
+    for idx in range(args.count):
+        real_idx = args.index + idx
+        if real_idx >= len(images): break
+
+        img_raw = images[real_idx]
+        label = labels[real_idx]
         img_input = preprocess(img_raw, mean, std)
         
         # --- A. PYTHON SIMULATION ---
-        expected_scores = simulate_cnn_inference(img_input, cw, cb, dw, db)
+        expected_scores = simulate_cnn_inference(img_input, weights)
         py_pred = np.argmax(expected_scores)
 
         # --- B. FPGA INFERENCE ---
-        # 1. Send Image (with Flow Control)
         ser.reset_input_buffer()
         ser.write(IMG_START)
         
@@ -193,22 +249,19 @@ def main():
         img_bytes = img_input.tobytes()
         for i in range(0, len(img_bytes), 64):
             ser.write(img_bytes[i:i+64])
-            time.sleep(0.005) # 5ms delay
+            time.sleep(0.005) 
             
         ser.write(IMG_END)
+        time.sleep(0.15) # Wait for inference
         
-        # Wait for inference
-        time.sleep(0.1)
-        
-        # 2. Read Scores
         ser.write(CMD_READ_SCORES)
         response = ser.read(40)
         
         if len(response) != 40:
-            # print(f"Error: Received {len(response)} bytes from FPGA (expected 40)")  # Commented out
+            print(f"Index {real_idx}: Timeout/Error receiving scores.")
+            output_file.write(f"Image {real_idx} | TIMEOUT\n")
             continue
             
-        # Unpack Little Endian 32-bit Signed Integers
         fpga_scores = np.array(struct.unpack('<10i', response), dtype=np.int32)
         fpga_pred = np.argmax(fpga_scores)
 
@@ -216,27 +269,28 @@ def main():
         is_match = np.array_equal(expected_scores, fpga_scores)
         if is_match: correct_matches += 1
         
-        # Format scores as list string (Use tolist() to fix np.int32 format)
-        py_scores_str = str(expected_scores.tolist())
-        fpga_scores_str = str(fpga_scores.tolist())
+        if fpga_pred == label: accuracy_correct += 1
         
-        # Determine status
-        if is_match and py_pred == fpga_pred:
-            status = f"✓ MATCH (both predictions: {py_pred})"
-        else:
-            max_diff = np.max(np.abs(fpga_scores - expected_scores))
-            status = f"✗ MISMATCH (Python: {py_pred}, FPGA: {fpga_pred}) - Max Diff: {max_diff}"
+        status = "MATCH" if is_match else "MISMATCH"
         
-        # Write formatted output
-        output_file.write(f"Image {idx:3d} | Label: {label} | Python Pred: {py_pred} | Python: {py_scores_str}\n")
-        output_file.write(f"          |           | FPGA Pred: {fpga_pred:2d}    | FPGA:   {fpga_scores_str}\n")
-        output_file.write(f"          |           | Status: {status}\n")
-        output_file.write("\n")
+        # Console output - compact
+        print(f"Img {real_idx:3d}: Label={label} Py={py_pred} FPGA={fpga_pred} [{status}]")
+        
+        # Log output - detailed
+        output_file.write(f"Image {real_idx} | Label: {label} | Status: {status}\n")
+        output_file.write(f"Python: {expected_scores.tolist()}\n")
+        output_file.write(f"FPGA:   {fpga_scores.tolist()}\n")
+        if not is_match:
+             output_file.write(f"Diff:   {(fpga_scores - expected_scores).tolist()}\n")
+        output_file.write("-" * 50 + "\n")
 
-    # Write summary
-    output_file.write("=" * 80 + "\n")
-    output_file.write(f"Final Summary: {correct_matches}/10 Exact Logic Matches\n")
-    output_file.write("=" * 80 + "\n")
+    # Summary
+    print("\n" + "="*30)
+    print(" SUMMARY")
+    print("="*30)
+    print(f"Total Tests: {args.count}")
+    print(f"FPGA Accuracy: {accuracy_correct}/{args.count} ({(accuracy_correct/args.count)*100:.1f}%)")
+    print(f"Bit-Exact Matches: {correct_matches}/{args.count} ({(correct_matches/args.count)*100:.1f}%)")
     
     output_file.close()
     ser.close()

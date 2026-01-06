@@ -97,5 +97,3 @@ module uart_rx #(
         end
     end
 endmodule
-
-
