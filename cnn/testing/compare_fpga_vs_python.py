@@ -193,7 +193,7 @@ def main():
     parser.add_argument("--port", default=DEFAULT_PORT, help="Serial port")
     parser.add_argument("--baud", type=int, default=DEFAULT_BAUD, help="Baud rate")
     parser.add_argument("--index", type=int, default=0, help="Start index in MNIST test set")
-    parser.add_argument("--count", type=int, default=150, help="Number of images to test")
+    parser.add_argument("--count", type=int, default=1000, help="Number of images to test")
     args = parser.parse_args()
 
     # Determine paths

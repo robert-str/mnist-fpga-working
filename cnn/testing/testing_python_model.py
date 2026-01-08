@@ -180,7 +180,7 @@ def main():
     weights, (norm_mean, norm_std) = load_all_weights()
     dataset = get_data()
     
-    total_images = 100  # Set lower for speed (pure Python loops are slow)
+    total_images = 3000  # Test on same 3000 images as FPGA
     correct = 0
 
     print(f"Running inference on first {total_images} images...")
